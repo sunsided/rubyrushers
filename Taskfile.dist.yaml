@@ -1,0 +1,86 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  PROFILE: '{{ .PROFILE | default "debug" }}'
+  PROFILE_FLAG: '{{ if eq .PROFILE "release" }}--release{{ end }}'
+
+tasks:
+  default:
+    cmds:
+      - task --list --sort=none
+    silent: true
+
+  run:
+    desc: Run the game (PROFILE=debug|release; extra args after --, e.g. task run -- --mode blitz)
+    cmds:
+      - cargo run {{.PROFILE_FLAG}} -- {{.CLI_ARGS}}
+
+  screenshot:
+    desc: "Start MODE (default blitz), save the window after AT seconds (default 3) to OUT, then quit"
+    vars:
+      OUT: '{{ .OUT | default "screenshots/window.png" }}'
+      AT: '{{ .AT | default "3" }}'
+      MODE: '{{ .MODE | default "blitz" }}'
+    cmds:
+      - cargo run {{.PROFILE_FLAG}} -- --mode {{.MODE}} --screenshot {{.OUT}} --at {{.AT}}
+
+  web:
+    desc: Run in the browser with live rebuild at http://localhost:8080 (needs trunk)
+    preconditions: &web-preconditions
+      - sh: command -v trunk
+        msg: "trunk not found — run: cargo install trunk --locked"
+      - sh: rustup target list --installed | grep -qx wasm32-unknown-unknown
+        msg: "wasm target missing — run: rustup target add wasm32-unknown-unknown"
+    cmds:
+      - trunk serve {{.PROFILE_FLAG}} {{.CLI_ARGS}}
+
+  web:build:
+    desc: Build for the browser into dist/ (PROFILE=release for upload)
+    preconditions: *web-preconditions
+    cmds:
+      - trunk build {{.PROFILE_FLAG}} {{.CLI_ARGS}}
+
+  check:wasm:
+    desc: Clippy for the browser target (wasm32-unknown-unknown)
+    cmds:
+      - cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings
+
+  build:
+    desc: Build (PROFILE=debug|release)
+    cmds:
+      - cargo build {{.PROFILE_FLAG}} {{.CLI_ARGS}}
+
+  test:
+    desc: Run tests (board rules, matching, cascades, scoring, modes)
+    cmds:
+      - cargo test {{.CLI_ARGS}}
+
+  fmt:
+    desc: Format sources
+    cmds:
+      - cargo fmt --all
+
+  lint:
+    desc: Clippy (warnings as errors, includes missing docs)
+    cmds:
+      - cargo clippy --all-targets -- -D warnings
+
+  check:
+    desc: fmt --check, clippy -D warnings, tests and docs without broken links (run before calling it done)
+    cmds:
+      - cargo fmt --all --check
+      - cargo clippy --all-targets -- -D warnings
+      - cargo test
+      - RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+
+  lint:actions:
+    desc: Lint the GitHub workflows (actionlint, zizmor)
+    preconditions:
+      - sh: command -v actionlint
+        msg: "actionlint not found - go install github.com/rhysd/actionlint/cmd/actionlint@latest"
+      - sh: command -v zizmor
+        msg: "zizmor not found - pipx install zizmor (or: cargo install zizmor)"
+    cmds:
+      - actionlint -color
+      - zizmor --format plain .github

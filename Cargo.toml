@@ -1,0 +1,43 @@
+[package]
+name = "rubyrushers"
+version = "0.1.0"
+description = "A fast match-three gem game on game-toolkit: a 60-second rush and an endless mode."
+edition = "2024"
+rust-version = "1.95"
+license = "EUPL-1.2"
+authors = ["Markus Mayer"]
+repository = "https://github.com/sunsided/rubyrushers"
+publish = false
+
+[dependencies]
+game-toolkit = { version = "0.11", features = ["synth"] }
+log = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11"
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+missing_docs_in_private_items = "warn"
+dbg_macro = "warn"
+todo = "warn"
+manual_let_else = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+
+# Light optimization for our own code, full for dependencies: playable debug builds that
+# still compile fast.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
