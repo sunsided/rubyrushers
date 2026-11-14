@@ -77,6 +77,8 @@ once its move has settled, the move that sets up next, and every move it weighed
 ![The bot's view: the captured board, the tiles it read, the board it expects after its
 move, and the moves it weighed](docs/bot-watch.png)
 
+How it finds, reads and plays the board, and how it differs from its 2010 predecessor: [`bot/README.md`](bot/README.md).
+
 ## License
 
 [EUPL-1.2](LICENSE).
