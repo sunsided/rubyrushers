@@ -7,7 +7,8 @@
 //!
 //! By default it serves the web build in `dist/` itself, starts a Rush game with calm
 //! effects in a headless browser and plays until the game ends, as fast as it can: it
-//! moves wherever two readings in a row agree, without waiting for the board to rest.
+//! moves wherever two readings in a row agree, without waiting for the board to rest. The
+//! game is over when the bot finds no move for a while or the board ignores its moves.
 
 use std::time::{Duration, Instant};
 
@@ -15,12 +16,17 @@ use anyhow::{Context, Result, bail};
 use rubyrushers_bot::browser::Screen;
 use rubyrushers_bot::{Board, Grid, SIZE, Tile, read, serve::serve, sim, solver};
 
-/// Seconds the board may stay unreadable before the bot calls the game over.
-const GONE_SECS: f32 = 4.0;
+/// Seconds without a move the bot can trust before it calls the game over: the board is
+/// gone, covered, or too dimmed to read alike twice. While the game runs, a move turns up
+/// well within a second.
+const STUCK_SECS: f32 = 4.0;
 /// Time between the two clicks of a swap: two frames at 60 Hz.
 const CLICK_GAP: Duration = Duration::from_millis(34);
 /// How long the cells a move changes stay off limits: swap, clear, fall.
 const BUSY: Duration = Duration::from_millis(700);
+/// Moves in a row that change nothing before the bot calls the game over: a finished game
+/// may still show its board, dimmed under the final score, yet ignores every click.
+const DEAD_MOVES: u32 = 3;
 
 /// Reads the flags, opens the game and plays it.
 fn main() -> Result<()> {
@@ -79,10 +85,13 @@ fn main() -> Result<()> {
 
     let start = Instant::now();
     let mut last: Option<Board> = None;
-    let mut readable = Instant::now();
+    let mut moved = Instant::now();
     // Per cell: until when the bot's own last moves are expected to keep it changing.
     let mut busy = [[start; SIZE]; SIZE];
     let mut moves = 0;
+    // Moves made, waiting to be checked once settled: when, and the board read just before.
+    let mut pending: Vec<(Instant, Board)> = Vec::new();
+    let mut dead = 0;
     // Seconds spent capturing, reading, solving and clicking; and loop rounds.
     let mut spent = [0.0f32; 4];
     let mut rounds = 0u32;
@@ -100,10 +109,8 @@ fn main() -> Result<()> {
             .flatten()
             .filter(|t| **t != Tile::Unknown)
             .count();
-        if seen * 2 > SIZE * SIZE {
-            readable = now;
-        } else if readable.elapsed().as_secs_f32() > GONE_SECS {
-            println!("the board is gone: game over");
+        if moved.elapsed().as_secs_f32() > STUCK_SECS {
+            println!("no move in {STUCK_SECS} s: game over");
             break;
         }
         // Trust a cell when two readings in a row agree and no move of the bot's is still
@@ -120,6 +127,21 @@ fn main() -> Result<()> {
             }
         }
         last = Some(board);
+        // While the game runs, a move changes the board, or something else does meanwhile.
+        // A board that reads exactly the same after the move has settled ignored it.
+        let mut over = false;
+        pending.retain(|(due, before)| {
+            if now < *due {
+                return true;
+            }
+            dead = if board == *before { dead + 1 } else { 0 };
+            over |= dead >= DEAD_MOVES;
+            false
+        });
+        if over {
+            println!("the board ignores moves: game over");
+            break;
+        }
         // A dimmed or covered board (game over, banners) is no place to click.
         if seen * 4 < SIZE * SIZE * 3 {
             continue;
@@ -137,10 +159,12 @@ fn main() -> Result<()> {
         screen.click(grid.center(b[0], b[1]))?;
         spent[3] += t3.elapsed().as_secs_f32();
         moves += 1;
+        moved = Instant::now();
         println!("move {moves}: {a:?} <-> {b:?}");
         // Leave the cells this move will change alone until they settled.
         let after = sim::play(&trusted, (a, b)).map_or(trusted, |o| o.after);
         let until = Instant::now() + BUSY;
+        pending.push((until, board));
         for y in 0..SIZE {
             for x in 0..SIZE {
                 if after[y][x] != trusted[y][x] || [x, y] == a || [x, y] == b {
