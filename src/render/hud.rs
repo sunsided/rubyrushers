@@ -21,7 +21,7 @@ pub const MODES: [Mode; 3] = [Mode::rush(), Mode::Endless, Mode::tilt()];
 
 /// Design-space rectangle (top-left, size) of title button `i`.
 pub fn button_rect(i: usize) -> ([f32; 2], [f32; 2]) {
-    let size = [300.0, 84.0];
+    let size = [460.0, 84.0];
     ([(DESIGN_W - size[0]) / 2.0, 340.0 + i as f32 * 100.0], size)
 }
 
