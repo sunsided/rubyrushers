@@ -19,6 +19,7 @@ pub mod power;
 pub mod rng;
 pub mod score;
 pub mod session;
+pub mod time_rule;
 
 pub use board::{Board, SIZE};
 pub use event::{Clear, Event};
@@ -29,3 +30,4 @@ pub use mode::Mode;
 pub use pos::Pos;
 pub use power::Power;
 pub use session::Session;
+pub use time_rule::TimeRule;

@@ -14,6 +14,7 @@ use super::pos::Pos;
 use super::power::Power;
 use super::rng::Rng;
 use super::score;
+use super::time_rule::TimeRule;
 
 /// A game in progress: the moving board, the score and the mode's clock.
 #[derive(Clone, Debug)]
@@ -32,6 +33,12 @@ pub struct Session {
     speed: u32,
     /// Seconds since the player's last match.
     since_match: f32,
+    /// How much time gems add.
+    time_rule: TimeRule,
+    /// Time gems taken so far.
+    time_gems: u32,
+    /// Seconds they added so far.
+    time_added: f32,
     /// Swapped wild gems waiting to land: their id and the colour they take out (`None`:
     /// every gem).
     armed: Vec<(u32, Option<u8>)>,
@@ -55,11 +62,30 @@ impl Session {
             best_cascade: 0,
             speed: 0,
             since_match: f32::INFINITY,
+            time_rule: TimeRule::default(),
+            time_gems: 0,
+            time_added: 0.0,
             armed: Vec::new(),
             time_up: false,
             over: false,
             events: Vec::new(),
         }
+    }
+
+    /// The same game with time gems following `rule`.
+    pub fn with_time_rule(mut self, rule: TimeRule) -> Self {
+        self.time_rule = rule;
+        self
+    }
+
+    /// How much time gems add.
+    pub fn time_rule(&self) -> TimeRule {
+        self.time_rule
+    }
+
+    /// Seconds the next time gem adds.
+    pub fn next_time_bonus(&self) -> f32 {
+        self.time_rule.next(self.time_gems, self.time_added)
     }
 
     /// The gems by cell, moving ones included.
@@ -178,8 +204,13 @@ impl Session {
         if self.field.advance(dt) > 0 {
             self.events.push(Event::Landed);
         }
-        self.field
-            .gravity_step(&mut self.rng, self.mode.time_gem_odds());
+        // Once time gems are worth nothing, no new ones appear.
+        let odds = if self.next_time_bonus() > 0.0 {
+            self.mode.time_gem_odds()
+        } else {
+            0
+        };
+        self.field.gravity_step(&mut self.rng, odds);
         self.fire_wilds();
         self.match_settled();
         self.turn();
@@ -288,9 +319,18 @@ impl Session {
         let base = score::points(cleared.len(), &rewards, blasts.len(), cascade);
         let points = score::with_speed(base, self.speed);
         let time_gems = cleared.iter().filter(|(g, _)| g.time_bonus).count() as u32;
+        let mut time_added = 0.0;
+        if self.mode.remaining().is_some() {
+            for _ in 0..time_gems {
+                let secs = self.next_time_bonus();
+                self.time_gems += 1;
+                self.time_added += secs;
+                time_added += secs;
+            }
+        }
         self.score += points;
         self.best_cascade = self.best_cascade.max(cascade);
-        self.mode.add_time(time_gems);
+        self.mode.add_time(time_added);
         self.events.push(Event::Cleared(Clear {
             cascade,
             cleared,
@@ -299,6 +339,7 @@ impl Session {
             points,
             speed: self.speed,
             time_gems,
+            time_added,
         }));
     }
 
@@ -619,5 +660,16 @@ mod tests {
         }
         assert_eq!(s.speed(), 0);
         assert_eq!(s.speed_left(), 0.0);
+    }
+
+    #[test]
+    fn capped_time_gems_stop_adding_time() {
+        let mut s = Session::new(Mode::rush(), 2).with_time_rule(TimeRule::Cap);
+        s.time_gems = 12;
+        s.time_added = crate::logic::time_rule::CAP_SECS;
+        assert_eq!(s.next_time_bonus(), 0.0);
+        let mut f = Session::new(Mode::rush(), 2).with_time_rule(TimeRule::Fade);
+        f.time_gems = 3;
+        assert_eq!(f.next_time_bonus(), 3.5);
     }
 }

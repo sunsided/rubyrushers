@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 
 use game_toolkit::prelude::*;
 
-use crate::logic::{Event, Mode, Pos, Session};
+use crate::logic::{Event, Mode, Pos, Session, TimeRule};
 use crate::render::scene::{self, Marks};
 use crate::render::{Effects, Fx, Layout, gem_art, hud};
 use crate::scores::{self, Bests};
@@ -28,6 +28,8 @@ pub struct Options {
     pub screenshot: Option<(PathBuf, f32)>,
     /// Start with calm effects.
     pub calm: bool,
+    /// How much time gems add.
+    pub time_rule: TimeRule,
 }
 
 /// The options set before [`run`].
@@ -96,6 +98,8 @@ pub struct App {
     bests: Bests,
     /// The seed of the next game.
     seed: u64,
+    /// How much time gems add.
+    time_rule: TimeRule,
     /// The screenshot asked for on the command line, until taken.
     screenshot: Option<(PathBuf, f32)>,
     /// Quit at the next update (the screenshot has been taken).
@@ -106,7 +110,7 @@ impl App {
     /// Starts a new game of `mode`.
     fn start(&mut self, mode: Mode) {
         // `--seed` deals exactly the first game; later ones step on from it.
-        self.session = Session::new(mode, self.seed);
+        self.session = Session::new(mode, self.seed).with_time_rule(self.time_rule);
         self.seed = self.seed.wrapping_add(0x9E37_79B9);
         self.fx.clear();
         self.fx.banner("Go!");
@@ -284,6 +288,7 @@ impl Game for App {
             shown_target: 0,
             bests: scores::load(),
             seed,
+            time_rule: options.time_rule,
             screenshot: options.screenshot,
             quit_next: false,
         };

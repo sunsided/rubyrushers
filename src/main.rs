@@ -6,12 +6,14 @@
 //! - `--mode rush|endless|tilt`: skip the title and start that mode.
 //! - `--seed <n>`: deal the first game from this seed.
 //! - `--calm`: start with calm effects (no shake, spin or glints; F2 toggles).
+//! - `--time cap|fade`: time gems add +5 s up to +60 s in all (cap, the default), or
+//!   less with each one, down to +1 s (fade).
 //! - `--screenshot <file.png>`: save what the window shows after `--at <secs>` seconds
 //!   (default 3), then quit.
 
 use game_toolkit::prelude::*;
 use rubyrushers::app::{App, Options, config, set_options};
-use rubyrushers::logic::Mode;
+use rubyrushers::logic::{Mode, TimeRule};
 
 /// Parses the command line, sets up logging (native only) and hands the game to the
 /// toolkit's run loop.
@@ -32,6 +34,11 @@ fn main() -> Result<()> {
         "tilt" => Mode::tilt(),
         _ => fail("--mode needs rush, endless or tilt"),
     });
+    let time_rule = match value("--time").as_deref() {
+        None | Some("cap") => TimeRule::Cap,
+        Some("fade") => TimeRule::Fade,
+        Some(_) => fail("--time needs cap or fade"),
+    };
     let seed = value("--seed").map(|s| s.parse().unwrap_or_else(|_| fail("--seed needs a number")));
     let at = value("--at").map_or(3.0, |s| {
         s.parse().unwrap_or_else(|_| fail("--at needs seconds"))
@@ -47,6 +54,7 @@ fn main() -> Result<()> {
         seed,
         screenshot,
         calm: args.iter().any(|a| a == "--calm"),
+        time_rule,
     });
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();

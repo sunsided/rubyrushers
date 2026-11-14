@@ -136,6 +136,14 @@ pub fn panel(
             HUD,
             BlendMode::Alpha,
         );
+        let next = session.next_time_bonus();
+        let rule = session.time_rule().name();
+        let gems = if next > 0.0 {
+            format!("time gems +{} s ({rule})", (next * 10.0).round() / 10.0)
+        } else {
+            format!("time gems spent ({rule})")
+        };
+        text(p, l, [x, 452.0], &gems, 14.0, MUTED, Align::Left);
         text(
             p,
             l,

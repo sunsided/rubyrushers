@@ -8,7 +8,6 @@ use super::easing;
 use super::effects::Effects;
 use super::gem_art::BASE;
 use super::layout::{BOARD, BOARD_SIZE, DESIGN_H, DESIGN_W, Layout};
-use crate::logic::mode::TIME_GEM_SECS;
 use crate::logic::score;
 use crate::logic::{Clear, Gem, Piece, Power};
 
@@ -182,8 +181,8 @@ impl Fx {
                 Power::None => {}
             }
         }
-        if clear.time_gems > 0 {
-            let secs = clear.time_gems as f32 * TIME_GEM_SECS;
+        if clear.time_added > 0.0 {
+            let secs = (clear.time_added * 10.0).round() / 10.0;
             let at = [BOARD_MID[0], BOARD[1] + BOARD_SIZE * 0.35];
             self.popup(format!("+{secs} s"), at, 40.0, Color::rgb(0.5, 1.0, 0.9));
         }

@@ -97,10 +97,10 @@ impl Mode {
         }
     }
 
-    /// Adds `time_gems` worth of time (timed modes only).
-    pub fn add_time(&mut self, time_gems: u32) {
+    /// Adds `secs` to the clock (timed modes only).
+    pub fn add_time(&mut self, secs: f32) {
         if let Some(remaining) = self.remaining_mut() {
-            *remaining += time_gems as f32 * TIME_GEM_SECS;
+            *remaining += secs;
         }
     }
 
@@ -130,7 +130,7 @@ mod tests {
     fn rush_runs_out_and_time_gems_extend_it() {
         let mut mode = Mode::rush();
         assert!(!mode.tick(RUSH_SECS - 1.0));
-        mode.add_time(2);
+        mode.add_time(2.0 * TIME_GEM_SECS);
         assert!(!mode.tick(1.0 + TIME_GEM_SECS));
         assert!(mode.tick(TIME_GEM_SECS));
         assert!(!Mode::Endless.tick(1e9));

@@ -41,4 +41,6 @@ pub struct Clear {
     pub speed: u32,
     /// Time gems among the cleared.
     pub time_gems: u32,
+    /// Seconds they added to the clock.
+    pub time_added: f32,
 }

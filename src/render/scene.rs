@@ -54,6 +54,8 @@ struct Look {
     stretch: f32,
     /// Gems fall sideways: stretch horizontally.
     sideways: bool,
+    /// Seconds a time gem adds now (0: worth nothing, drawn as a plain gem).
+    bonus: f32,
 }
 
 /// Draws the board, its gems, the gems being cleared and the marks; `time` drives the
@@ -107,6 +109,7 @@ pub fn board(
     }
 
     let sideways = matches!(session.gravity(), Gravity::Left | Gravity::Right);
+    let bonus = session.next_time_bonus();
     for q in session.pieces() {
         let selected = marks
             .selected
@@ -134,6 +137,7 @@ pub fn board(
             spin,
             stretch,
             sideways,
+            bonus,
         };
         gem(p, layout, atlas, look, time, full);
         if selected {
@@ -155,6 +159,7 @@ pub fn board(
             spin: if full { v.spin() } else { 0.0 },
             stretch: 1.0,
             sideways: false,
+            bonus,
         };
         gem(p, layout, atlas, look, time, full);
     }
@@ -259,10 +264,11 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
         }
         Power::Wild | Power::None => {}
     }
-    if s.gem.time_bonus {
+    if s.gem.time_bonus && s.bonus > 0.0 {
         let c = Color::rgba(0.4, 1.0, 0.9, alpha * (0.7 + 0.3 * wave(4.0, 0.0)));
         p.circle_ex(center, size * 0.47, layout.len(3.0), c, MARKS);
-        p.draw_text([center[0], center[1] + size * 0.12], "+5")
+        let label = format!("+{}", (s.bonus * 10.0).round() / 10.0);
+        p.draw_text([center[0], center[1] + size * 0.12], &label)
             .size(size * 0.3)
             .align(Align::Center)
             .color(Color::WHITE.with_alpha(alpha))

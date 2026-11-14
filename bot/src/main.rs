@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! rubyrushers-bot [--dist dist | --url http://localhost:8080/] [--mode rush|endless|tilt]
-//!                 [--full] [--visible] [--secs 90] [--shot final.png]
+//!                 [--full] [--visible] [--secs 90] [--shot final.png] [--time cap|fade]
 //! ```
 //!
 //! By default it serves the web build in `dist/` itself, starts a Rush game with calm
@@ -42,10 +42,11 @@ fn main() -> Result<()> {
         bail!("--mode needs rush, endless or tilt");
     }
     let calm = if flag("--full") { "" } else { "&calm" };
+    let time = value("--time").map_or(String::new(), |t| format!("&time={t}"));
     let secs: f32 = value("--secs").map_or(Ok(600.0), |s| s.parse())?;
 
     let mut screen = Screen::open(
-        &format!("{base}?mode={mode}{calm}"),
+        &format!("{base}?mode={mode}{calm}{time}"),
         1120,
         840,
         flag("--visible"),
