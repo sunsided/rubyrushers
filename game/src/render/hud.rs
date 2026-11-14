@@ -21,12 +21,14 @@ const MUTED: Color = Color::rgb(0.65, 0.68, 0.85);
 pub const MODES: [Mode; 3] = [Mode::rush(), Mode::Endless, Mode::tilt()];
 
 /// Design-space rectangle (top-left, size) of title button `i`.
+#[must_use]
 pub fn button_rect(i: usize) -> ([f32; 2], [f32; 2]) {
     let size = [460.0, 84.0];
     ([(DESIGN_W - size[0]) / 2.0, 340.0 + i as f32 * 100.0], size)
 }
 
 /// Which title button contains design point `d`.
+#[must_use]
 pub fn button_at(d: [f32; 2]) -> Option<usize> {
     (0..MODES.len()).find(|&i| {
         let (pos, size) = button_rect(i);
@@ -264,23 +266,23 @@ pub fn title(
 
 /// The game's name on the title screen; with full effects, letter by letter, bobbing and
 /// running through the gem colours.
-fn title_name(p: &mut Painter<'_>, l: &Layout, time: f32, effects: Effects) {
+fn title_name(p: &mut Painter<'_>, layout: &Layout, time: f32, effects: Effects) {
     let cx = DESIGN_W / 2.0;
     let name = "RUBY RUSHERS";
     if !effects.full() {
-        text(p, l, [cx, 120.0], name, 72.0, ACCENT, Align::Center);
+        text(p, layout, [cx, 120.0], name, 72.0, ACCENT, Align::Center);
         return;
     }
 
     // Letter by letter, each placed after the width of the text before it.
-    let px = l.len(72.0);
+    let px = layout.len(72.0);
     let width = p.measure_text(name, px)[0];
-    let left = l.px([cx, 0.0])[0] - width / 2.0;
+    let left = layout.px([cx, 0.0])[0] - width / 2.0;
 
     for (j, ch) in name.char_indices() {
         let x = left + p.measure_text(&name[..j], px)[0];
         let k = j as f32;
-        let y = l.px([0.0, 120.0 + 7.0 * (time * 3.0 - k * 0.45).sin()])[1];
+        let y = layout.px([0.0, 120.0 + 7.0 * (time * 3.0 - k * 0.45).sin()])[1];
         p.draw_text([x, y], &ch.to_string())
             .size(px)
             .color(showcase::rainbow(time * 1.2 - k * 0.35))

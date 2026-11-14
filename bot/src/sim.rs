@@ -35,6 +35,7 @@ struct Group {
 
 /// Predicts what swapping `a` and `b` does, or `None` if the game would not take the
 /// swap (unknown tiles, nothing lines up).
+#[must_use]
 pub fn play(board: &Board, (a, b): Swap) -> Option<Outcome> {
     let (ta, tb) = (at(board, a), at(board, b));
     if ta == Tile::Unknown || tb == Tile::Unknown {
@@ -46,6 +47,11 @@ pub fn play(board: &Board, (a, b): Swap) -> Option<Outcome> {
     set(&mut now, b, ta);
 
     let mut holes = [[false; SIZE]; SIZE];
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "counts at most the board's 64 cells"
+    )]
     let mut gain = match (ta, tb) {
         (Tile::Wild, Tile::Wild) => {
             holes = [[true; SIZE]; SIZE];
@@ -239,6 +245,10 @@ fn joined(runs: &[Run]) -> Vec<Vec<&Run>> {
 
 /// The group the joined runs `members` form: its cells, its value, and the special gem it
 /// leaves where the player moved (or in its middle).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a group holds at most the board's 64 cells"
+)]
 fn group(board: &Board, members: &[&Run], moved: &[[usize; 2]]) -> Group {
     let mut cells: Vec<[usize; 2]> = members.iter().flat_map(|r| r.0.clone()).collect();
     cells.sort_unstable();

@@ -15,10 +15,8 @@ use rubyrushers_bot::{Board, Grid, Tile, read, serve::serve};
 
 /// The truth for cell (x, y) of a seeded endless game: colour, or `None` for a wild.
 fn truth(session: &Session, x: usize, y: usize) -> Option<u8> {
-    let g = session
-        .board()
-        .get(Pos::new(x as i32, y as i32))
-        .expect("full board");
+    let [x, y] = [x, y].map(|v| i32::try_from(v).expect("a cell on the board"));
+    let g = session.board().get(Pos::new(x, y)).expect("full board");
 
     (g.power != Power::Wild).then_some(g.color)
 }
@@ -26,9 +24,10 @@ fn truth(session: &Session, x: usize, y: usize) -> Option<u8> {
 #[test]
 #[ignore = "needs Chromium and a web build in dist/"]
 fn reads_seeded_boards() {
-    let dist = std::env::var_os("DIST")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../dist"));
+    let dist = std::env::var_os("DIST").map_or_else(
+        || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../dist"),
+        PathBuf::from,
+    );
 
     let base = serve(&dist).expect("serve dist/");
     let mut screen = Screen::open(&base, 1120, 840, false).expect("open Chromium");

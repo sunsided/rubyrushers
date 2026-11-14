@@ -13,6 +13,7 @@ pub enum Tile {
 
 impl Tile {
     /// Whether two tiles line up in a match.
+    #[must_use]
     pub fn matches(self, other: Self) -> bool {
         matches!((self, other), (Self::Gem(a), Self::Gem(b)) if a == b)
     }

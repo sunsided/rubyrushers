@@ -19,6 +19,7 @@ pub struct Grid {
 
 impl Grid {
     /// The pixel centre of cell (`x`, `y`).
+    #[must_use]
     pub fn center(&self, x: usize, y: usize) -> [f32; 2] {
         [
             self.origin[0] + (x as f32 + 0.5) * self.pitch,
@@ -26,7 +27,11 @@ impl Grid {
         ]
     }
 
-    /// Finds the board in `img`. Fails while the board is hidden or too much of it moves.
+    /// Finds the board in `img`.
+    ///
+    /// # Errors
+    ///
+    /// While the board is hidden, or too much of it moves to show 64 gems on a lattice.
     pub fn locate(img: &Image) -> Result<Self> {
         let blobs = blobs(img);
 
@@ -66,7 +71,7 @@ impl Grid {
             typical,
         )?;
 
-        let pitch = (xs.1 + ys.1) / 2.0;
+        let pitch = f32::midpoint(xs.1, ys.1);
 
         Ok(Self {
             origin: [xs.0 - pitch / 2.0, ys.0 - pitch / 2.0],

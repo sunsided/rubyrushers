@@ -9,7 +9,7 @@ use crate::image::Image;
 
 /// A browser showing the game.
 pub struct Screen {
-    /// The DevTools connection.
+    /// The `DevTools` connection.
     cdp: Cdp,
     /// Screenshot pixels per page (CSS) pixel.
     scale: f64,
@@ -20,6 +20,10 @@ pub struct Screen {
 impl Screen {
     /// Opens `url` with a `width` × `height` page; `visible` shows the window instead of
     /// running headless.
+    ///
+    /// # Errors
+    ///
+    /// When Chrome does not start, the connection to it fails, or the page does not load.
     pub fn open(url: &str, width: u32, height: u32, visible: bool) -> Result<Self> {
         let mut args = vec![
             format!("--window-size={width},{height}"),
@@ -55,7 +59,7 @@ impl Screen {
         // The page gets exactly width × height, whatever the window's toolbars take.
         cdp.call(
             "Emulation.setDeviceMetricsOverride",
-            json!({ "width": width, "height": height, "deviceScaleFactor": 1, "mobile": false }),
+            &json!({ "width": width, "height": height, "deviceScaleFactor": 1, "mobile": false }),
         )?;
 
         let mut screen = Self {
@@ -74,8 +78,12 @@ impl Screen {
     }
 
     /// Loads `url` and waits until the game's canvas is on the page.
+    ///
+    /// # Errors
+    ///
+    /// When a call to Chrome fails, or no canvas shows up within ten seconds.
     pub fn goto(&mut self, url: &str) -> Result<()> {
-        self.cdp.call("Page.navigate", json!({ "url": url }))?;
+        self.cdp.call("Page.navigate", &json!({ "url": url }))?;
 
         let ready = "!!document.querySelector('canvas') && document.readyState === 'complete'";
         for _ in 0..200 {
@@ -94,13 +102,17 @@ impl Screen {
     fn eval(&mut self, expression: &str, promise: bool) -> Result<serde_json::Value> {
         let r = self.cdp.call(
             "Runtime.evaluate",
-            json!({ "expression": expression, "returnByValue": true, "awaitPromise": promise }),
+            &json!({ "expression": expression, "returnByValue": true, "awaitPromise": promise }),
         )?;
 
         Ok(r["result"]["value"].clone())
     }
 
     /// What the page shows now.
+    ///
+    /// # Errors
+    ///
+    /// When the screenshot cannot be taken or decoded.
     pub fn screenshot(&mut self) -> Result<Image> {
         Image::from_png(&self.png()?)
     }
@@ -112,29 +124,36 @@ impl Screen {
     }
 
     /// What the page shows now (or the clip rectangle), as PNG bytes.
+    ///
+    /// # Errors
+    ///
+    /// When the call to Chrome fails or returns no valid base64 image data.
     pub fn png(&mut self) -> Result<Vec<u8>> {
         let mut params = json!({ "format": "png", "fromSurface": true, "optimizeForSpeed": true });
 
         if let Some([x, y, w, h]) = self.clip {
-            let s = self.scale as f32;
-            params["clip"] =
-                json!({ "x": x / s, "y": y / s, "width": w / s, "height": h / s, "scale": 1 });
+            let [x, y, w, h] = [x, y, w, h].map(|v| f64::from(v) / self.scale);
+            params["clip"] = json!({ "x": x, "y": y, "width": w, "height": h, "scale": 1 });
         }
 
-        let r = self.cdp.call("Page.captureScreenshot", params)?;
+        let r = self.cdp.call("Page.captureScreenshot", &params)?;
         let data = r["data"].as_str().context("no screenshot data")?;
 
         Ok(base64::engine::general_purpose::STANDARD.decode(data)?)
     }
 
     /// Clicks at screenshot pixel `at`.
+    ///
+    /// # Errors
+    ///
+    /// When a call to Chrome fails.
     pub fn click(&mut self, at: [f32; 2]) -> Result<()> {
         let (x, y) = (f64::from(at[0]) / self.scale, f64::from(at[1]) / self.scale);
 
         for (kind, buttons) in [("mouseMoved", 0), ("mousePressed", 1), ("mouseReleased", 0)] {
             self.cdp.call(
                 "Input.dispatchMouseEvent",
-                json!({ "type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1 }),
+                &json!({ "type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1 }),
             )?;
         }
 
@@ -142,6 +161,10 @@ impl Screen {
     }
 
     /// Frames per second the page renders, measured over one second.
+    ///
+    /// # Errors
+    ///
+    /// When the call to Chrome fails.
     pub fn fps(&mut self) -> Result<f64> {
         let js = "new Promise(r => { let n = 0; const t0 = performance.now(); \
                   const f = () => { n++; if (performance.now() - t0 < 1000) requestAnimationFrame(f); else r(n); }; \

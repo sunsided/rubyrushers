@@ -26,6 +26,7 @@ struct Run {
 
 /// All matches on the board. `moved` are the cells the player just swapped (they get
 /// the reward gems); pass none for cascades.
+#[must_use]
 pub fn find(board: &Board, moved: &[Pos]) -> Vec<Group> {
     let runs = runs(board);
 
@@ -154,13 +155,14 @@ fn runs_along(board: &Board, at: impl Fn(i32) -> Pos) -> Vec<Vec<Pos>> {
 }
 
 /// Whether a line of three or more passes through `p`.
+#[must_use]
 pub fn lines_up_at(board: &Board, p: Pos) -> bool {
     let Some(gem) = board.get(p) else {
         return false;
     };
 
     let count = |dx: i32, dy: i32| {
-        (1..)
+        (1..SIZE)
             .take_while(|&i| {
                 board
                     .get(Pos::new(p.x + dx * i, p.y + dy * i))
@@ -223,9 +225,9 @@ mod tests {
 
     #[test]
     fn wilds_and_gaps_break_lines() {
-        assert!(find(&Board::parse(&["00W0"]), &[]).is_empty());
-        assert!(find(&Board::parse(&["00.0"]), &[]).is_empty());
-        assert!(find(&Board::parse(&["WWW"]), &[]).is_empty());
+        assert_eq!(find(&Board::parse(&["00W0"]), &[]), []);
+        assert_eq!(find(&Board::parse(&["00.0"]), &[]), []);
+        assert_eq!(find(&Board::parse(&["WWW"]), &[]), []);
     }
 
     #[test]

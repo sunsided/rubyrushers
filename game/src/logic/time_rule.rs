@@ -22,6 +22,7 @@ pub enum TimeRule {
 
 impl TimeRule {
     /// Seconds the next time gem adds, after `taken` time gems that added `added` seconds.
+    #[must_use]
     pub fn next(self, taken: u32, added: f32) -> f32 {
         match self {
             Self::Cap => TIME_GEM_SECS.min(CAP_SECS - added).max(0.0),
@@ -30,6 +31,7 @@ impl TimeRule {
     }
 
     /// The name used on the command line and in the URL.
+    #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
             Self::Cap => "cap",

@@ -33,6 +33,7 @@ pub enum Mode {
 
 impl Mode {
     /// A fresh timed game.
+    #[must_use]
     pub const fn rush() -> Self {
         Self::Rush {
             remaining: RUSH_SECS,
@@ -40,6 +41,7 @@ impl Mode {
     }
 
     /// A fresh tilt game.
+    #[must_use]
     pub const fn tilt() -> Self {
         Self::Tilt {
             remaining: RUSH_SECS,
@@ -71,6 +73,7 @@ impl Mode {
     }
 
     /// Seconds left on the game clock, in timed modes.
+    #[must_use]
     pub const fn remaining(&self) -> Option<f32> {
         match *self {
             Self::Rush { remaining } | Self::Tilt { remaining, .. } => Some(remaining),
@@ -79,6 +82,7 @@ impl Mode {
     }
 
     /// Seconds until gravity turns, in the tilt mode.
+    #[must_use]
     pub const fn turn_in(&self) -> Option<f32> {
         match *self {
             Self::Tilt { turn_in, .. } => Some(turn_in),
@@ -87,6 +91,7 @@ impl Mode {
     }
 
     /// Whether gravity is due to turn.
+    #[must_use]
     pub fn turn_due(&self) -> bool {
         self.turn_in() == Some(0.0)
     }
@@ -106,6 +111,7 @@ impl Mode {
     }
 
     /// How often new gems carry a time bonus (0: never).
+    #[must_use]
     pub const fn time_gem_odds(&self) -> u32 {
         match self {
             Self::Rush { .. } | Self::Tilt { .. } => TIME_GEM_ODDS,
@@ -114,6 +120,7 @@ impl Mode {
     }
 
     /// The name shown to the player.
+    #[must_use]
     pub const fn name(&self) -> &'static str {
         match self {
             Self::Rush { .. } => "Rush",

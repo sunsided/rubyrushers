@@ -9,6 +9,7 @@ pub const SIZE: usize = 8;
 pub type Board = [[Tile; SIZE]; SIZE];
 
 /// Whether every cell was read.
+#[must_use]
 pub fn complete(board: &Board) -> bool {
     board.iter().flatten().all(|t| *t != Tile::Unknown)
 }

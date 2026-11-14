@@ -8,6 +8,10 @@ use anyhow::Result;
 
 /// Serves the files under `root` on a free local port in a background thread. Returns
 /// the base URL.
+///
+/// # Errors
+///
+/// When `root` does not exist or no local port can be bound.
 pub fn serve(root: impl Into<PathBuf>) -> Result<String> {
     let root = root.into().canonicalize()?;
     let listener = TcpListener::bind("127.0.0.1:0")?;

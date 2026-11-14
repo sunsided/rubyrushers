@@ -27,6 +27,7 @@ pub const BASE: [[f32; 3]; COLORS as usize] = [
 ];
 
 /// The atlas: `TILES` tiles side by side, RGBA8, `TILE * TILES` × `TILE` pixels.
+#[must_use]
 pub fn atlas() -> Vec<u8> {
     let w = TILE * TILES;
     let mut rgba = vec![0u8; (w * TILE * 4) as usize];
@@ -44,6 +45,11 @@ pub fn atlas() -> Vec<u8> {
 }
 
 /// Pixel (`x`, `y`) of tile `tile`, as RGBA8.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "each channel is clamped to 0..=1 first, so it scales into 0..=255"
+)]
 fn texel(tile: u32, x: u32, y: u32) -> [u8; 4] {
     let c = if tile == WILD_TILE {
         wild_pixel(x, y)
@@ -88,6 +94,10 @@ fn outline(color: usize) -> Vec<[f32; 2]> {
 
 /// Distance from the origin to the outline along the direction `d` (unit length), and the
 /// index of the edge it crosses.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "ray-segment intersection in its textbook names: t*d = a + s*e"
+)]
 fn reach(poly: &[[f32; 2]], d: [f32; 2]) -> (f32, usize) {
     let mut best = (f32::MAX, 0);
 
@@ -119,6 +129,10 @@ const RADIUS: f32 = TILE as f32 * 0.44;
 const LIGHT: [f32; 2] = [-0.55, -0.835];
 
 /// One pixel of the gem of colour `color`, RGBA.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "shading maths: x/y pixel, p point, r radius, d direction, a/b edge ends"
+)]
 fn gem_pixel(color: usize, x: u32, y: u32) -> [f32; 4] {
     let poly = outline(color);
     let half = TILE as f32 / 2.0;

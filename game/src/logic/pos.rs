@@ -13,16 +13,19 @@ pub struct Pos {
 
 impl Pos {
     /// The cell at column `x`, row `y`.
+    #[must_use]
     pub const fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
 
     /// Whether the cell lies on the board.
+    #[must_use]
     pub const fn on_board(self) -> bool {
         self.x >= 0 && self.x < SIZE && self.y >= 0 && self.y < SIZE
     }
 
     /// Whether `other` shares an edge with this cell.
+    #[must_use]
     pub const fn adjacent(self, other: Self) -> bool {
         (self.x - other.x).abs() + (self.y - other.y).abs() == 1
     }

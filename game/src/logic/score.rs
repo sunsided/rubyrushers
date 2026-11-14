@@ -6,6 +6,7 @@ use super::power::Power;
 pub const PER_GEM: u64 = 10;
 
 /// Bonus for a match that earns `reward`.
+#[must_use]
 pub const fn reward_bonus(reward: Power) -> u64 {
     match reward {
         Power::None => 0,
@@ -25,17 +26,20 @@ pub const SPEED_WINDOW: f32 = 2.5;
 pub const MAX_SPEED: u32 = 6;
 
 /// `points` with the speed streak's bonus: +50% per level.
+#[must_use]
 pub fn with_speed(points: u64, speed: u32) -> u64 {
     points * u64::from(2 + speed) / 2
 }
 
 /// The speed streak's multiplier for display, e.g. "1.5".
+#[must_use]
 pub fn speed_factor(speed: u32) -> f32 {
     (2 + speed) as f32 / 2.0
 }
 
 /// Points for one cascade step: `cleared` gems, the rewards earned and the specials set
 /// off, all multiplied by the cascade depth (1 for the player's own match).
+#[must_use]
 pub fn points(cleared: usize, rewards: &[Power], blasts: usize, cascade: u32) -> u64 {
     let base = cleared as u64 * PER_GEM
         + rewards.iter().map(|&r| reward_bonus(r)).sum::<u64>()

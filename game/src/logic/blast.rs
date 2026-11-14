@@ -61,8 +61,7 @@ fn reach(
             let color = wild_colors
                 .iter()
                 .find(|(p, _)| *p == at)
-                .map(|&(_, c)| c)
-                .unwrap_or_else(|| random_present_color(board, rng));
+                .map_or_else(|| random_present_color(board, rng), |&(_, c)| c);
 
             Pos::all()
                 .filter(|p| is_plain_of(board, *p, color))
@@ -79,6 +78,10 @@ fn is_plain_of(board: &Board, p: Pos, color: u8) -> bool {
 }
 
 /// A colour some non-wild gem on the board has (any colour if none has).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "below(COLORS) is less than COLORS, which is a u8"
+)]
 fn random_present_color(board: &Board, rng: &mut Rng) -> u8 {
     let present: Vec<u8> = (0..COLORS)
         .filter(|&c| Pos::all().any(|p| is_plain_of(board, p, c)))
@@ -87,7 +90,7 @@ fn random_present_color(board: &Board, rng: &mut Rng) -> u8 {
     if present.is_empty() {
         rng.below(u32::from(COLORS)) as u8
     } else {
-        present[rng.below(present.len() as u32) as usize]
+        present[rng.index(present.len())]
     }
 }
 

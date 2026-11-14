@@ -7,6 +7,7 @@ use super::power::Power;
 
 /// Whether swapping the gems at adjacent cells `a` and `b` is a move: it lines up three,
 /// or one of them is wild.
+#[must_use]
 pub fn is_valid(board: &Board, a: Pos, b: Pos) -> bool {
     let (Some(ga), Some(gb)) = (board.get(a), board.get(b)) else {
         return false;
@@ -27,6 +28,7 @@ pub fn is_valid(board: &Board, a: Pos, b: Pos) -> bool {
 }
 
 /// Every valid swap, each pair once (left before right, top before bottom).
+#[must_use]
 pub fn valid_swaps(board: &Board) -> Vec<(Pos, Pos)> {
     Pos::all()
         .flat_map(|p| [(p, Pos::new(p.x + 1, p.y)), (p, Pos::new(p.x, p.y + 1))])
@@ -72,6 +74,6 @@ mod tests {
             "01234560", "12345601", "23456012", "34560123", "45601234", "56012345", "60123456",
             "01234560",
         ]);
-        assert!(valid_swaps(&board).is_empty());
+        assert_eq!(valid_swaps(&board), []);
     }
 }

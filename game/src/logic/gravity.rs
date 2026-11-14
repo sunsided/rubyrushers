@@ -20,6 +20,7 @@ pub enum Gravity {
 
 impl Gravity {
     /// The direction of the fall, one cell long.
+    #[must_use]
     pub const fn dir(self) -> [f32; 2] {
         match self {
             Self::Down => [0.0, 1.0],
@@ -30,6 +31,7 @@ impl Gravity {
     }
 
     /// The cell in `lane` at `depth` cells from the edge gems fall towards.
+    #[must_use]
     pub const fn cell(self, lane: i32, depth: i32) -> Pos {
         match self {
             Self::Down => Pos::new(lane, SIZE - 1 - depth),
@@ -40,6 +42,7 @@ impl Gravity {
     }
 
     /// The lane of cell `p`.
+    #[must_use]
     pub const fn lane(self, p: Pos) -> i32 {
         match self {
             Self::Down | Self::Up => p.x,
@@ -48,6 +51,7 @@ impl Gravity {
     }
 
     /// The next direction, a quarter turn clockwise (down, left, up, right).
+    #[must_use]
     pub const fn turned(self) -> Self {
         match self {
             Self::Down => Self::Left,
@@ -71,9 +75,13 @@ mod tests {
             assert!(cells.iter().all(|p| p.on_board()));
             cells.sort_unstable();
             cells.dedup();
-            assert_eq!(cells.len() as i32, SIZE * SIZE);
+            assert_eq!(cells.len(), Pos::all().count());
             // Depth 0 lies on the edge the fall points to.
             let edge = g.cell(3, 0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "dir() is a unit step: each component is -1, 0 or 1"
+            )]
             let beyond = Pos::new(edge.x + g.dir()[0] as i32, edge.y + g.dir()[1] as i32);
             assert!(!beyond.on_board(), "{g:?}");
             assert_eq!(g.lane(g.cell(5, 2)), 5);

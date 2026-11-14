@@ -49,11 +49,12 @@ pub struct Field {
 
 /// The index of an on-board cell.
 fn idx(p: Pos) -> usize {
-    (p.y * SIZE + p.x) as usize
+    usize::try_from(p.y * SIZE + p.x).expect("an on-board cell")
 }
 
 impl Field {
     /// `board` at rest.
+    #[must_use]
     pub fn new(board: Board) -> Self {
         Self {
             board,
@@ -65,6 +66,7 @@ impl Field {
     }
 
     /// Which way gems fall.
+    #[must_use]
     pub fn gravity(&self) -> Gravity {
         self.gravity
     }
@@ -80,11 +82,13 @@ impl Field {
     }
 
     /// The gems by cell, moving ones included.
+    #[must_use]
     pub fn board(&self) -> &Board {
         &self.board
     }
 
     /// The motion of the gem at `p`.
+    #[must_use]
     pub fn motion(&self, p: Pos) -> &Motion {
         &self.motion[idx(p)]
     }
@@ -95,16 +99,19 @@ impl Field {
     }
 
     /// Whether `p` holds a gem at rest in an open cell.
+    #[must_use]
     pub fn is_settled(&self, p: Pos) -> bool {
         self.board.get(p).is_some() && self.motion(p).settled() && self.hold[idx(p)] <= 0.0
     }
 
     /// Whether nothing moves: every cell has a settled gem.
+    #[must_use]
     pub fn is_still(&self) -> bool {
         Pos::all().all(|p| self.is_settled(p))
     }
 
     /// Only the settled gems, for matching.
+    #[must_use]
     pub fn settled_board(&self) -> Board {
         let mut b = self.board.clone();
 
@@ -132,6 +139,7 @@ impl Field {
     }
 
     /// Where the gem at `p` is drawn, in cells.
+    #[must_use]
     pub fn drawn_at(&self, p: Pos) -> [f32; 2] {
         let o = self.motion(p).offset(self.gravity.dir());
         [p.x as f32 + o[0], p.y as f32 + o[1]]
@@ -321,6 +329,10 @@ impl Field {
 
         for d in floor..SIZE {
             drawn += 1.0;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "below(COLORS) is less than COLORS, which is a u8"
+            )]
             let color = rng.below(u32::from(COLORS)) as u8;
             let gem = self
                 .board
@@ -378,11 +390,8 @@ mod tests {
         settle(&mut f, &mut rng);
 
         // The five gems above dropped two rows, two new ones sit on top.
-        for y in 0..5 {
-            assert_eq!(
-                f.board().get(Pos::new(2, y + 2)).unwrap().id,
-                ids[y as usize]
-            );
+        for (y, id) in (2..).zip(&ids[..5]) {
+            assert_eq!(f.board().get(Pos::new(2, y)).unwrap().id, *id);
         }
 
         assert_eq!(f.board().get(Pos::new(2, 7)).unwrap().id, ids[7]);
@@ -405,6 +414,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "cells are whole numbers; only pieces exactly on this lane count"
+    )]
     fn falling_gems_never_overlap() {
         let mut rng = Rng::new(3);
         let mut f = Field::new(Board::random(&mut rng));
@@ -447,9 +460,9 @@ mod tests {
             // The gem at depth 0 stays; the ones behind the gap moved one cell closer.
             assert_eq!(f.board().get(g.cell(2, 0)).unwrap().id, lane[0], "{g:?}");
 
-            for d in 1..SIZE - 1 {
+            for (d, behind) in (1..SIZE - 1).zip(&lane[2..]) {
                 let id = f.board().get(g.cell(2, d)).unwrap().id;
-                assert_eq!(id, lane[d as usize + 1], "{g:?} depth {d}");
+                assert_eq!(id, *behind, "{g:?} depth {d}");
             }
 
             assert!(!lane.contains(&f.board().get(g.cell(2, SIZE - 1)).unwrap().id));

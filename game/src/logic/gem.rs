@@ -20,6 +20,7 @@ pub struct Gem {
 
 impl Gem {
     /// Whether the gem lines up with `other` in a match: same colour, neither wild.
+    #[must_use]
     pub fn matches(&self, other: &Self) -> bool {
         self.power != Power::Wild && other.power != Power::Wild && self.color == other.color
     }

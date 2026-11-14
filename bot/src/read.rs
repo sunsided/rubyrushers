@@ -11,6 +11,7 @@ pub const HUES: [f32; 6] = [352.0, 29.0, 49.0, 138.0, 220.0, 274.0];
 pub const WHITE: u8 = 6;
 
 /// Reads every cell of the board.
+#[must_use]
 pub fn board(img: &Image, grid: &Grid) -> Board {
     let mut b = [[Tile::Unknown; SIZE]; SIZE];
 
@@ -36,7 +37,13 @@ pub fn cell(img: &Image, center: [f32; 2], pitch: f32) -> Tile {
     let (mut n, mut colourful, mut bright) = (0usize, 0usize, 0usize);
     let (mut sx, mut sy) = (0.0f32, 0.0f32);
 
-    for (h, s, v) in patch(img, center, (pitch * 0.2) as isize).map(hsv) {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a radius of a few pixels; rounding down is the intent"
+    )]
+    let radius = (pitch * 0.2) as isize;
+
+    for (h, s, v) in patch(img, center, radius).map(hsv) {
         n += 1;
         if s > 0.35 && v > 0.3 {
             colourful += 1;
@@ -71,28 +78,32 @@ pub fn cell(img: &Image, center: [f32; 2], pitch: f32) -> Tile {
 
 /// The pixels of the square patch with radius `r` around `center` that lie inside `img`.
 fn patch(img: &Image, center: [f32; 2], r: isize) -> impl Iterator<Item = [u8; 3]> + '_ {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "screen coordinates; rounding down to the pixel is the intent"
+    )]
     let (cx, cy) = (center[0] as isize, center[1] as isize);
 
     (cy - r..=cy + r)
         .flat_map(move |y| (cx - r..=cx + r).map(move |x| (x, y)))
-        .filter(|&(x, y)| x >= 0 && y >= 0 && (x as usize) < img.width && (y as usize) < img.height)
-        .map(|(x, y)| img.at(x as usize, y as usize))
+        .filter_map(|(x, y)| Some((usize::try_from(x).ok()?, usize::try_from(y).ok()?)))
+        .filter(|&(x, y)| x < img.width && y < img.height)
+        .map(|(x, y)| img.at(x, y))
 }
 
 /// The colour class whose hue lies closest to `hue` (degrees), or unknown when none is
 /// close.
 fn nearest_hue(hue: f32) -> Tile {
-    let (class, d) = HUES
-        .iter()
-        .enumerate()
-        .map(|(i, h)| (i, hue_distance(hue, *h)))
+    let (class, d) = (0u8..)
+        .zip(HUES)
+        .map(|(i, h)| (i, hue_distance(hue, h)))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .expect("six hues");
 
     if d > 25.0 {
         Tile::Unknown
     } else {
-        Tile::Gem(class as u8)
+        Tile::Gem(class)
     }
 }
 
@@ -110,7 +121,8 @@ mod tests {
 
         for (y, row) in b.iter().enumerate() {
             for (x, tile) in row.iter().enumerate() {
-                assert_eq!(*tile, Tile::Gem(class(x, y) as u8), "({x}, {y})");
+                let expected = u8::try_from(class(x, y)).unwrap();
+                assert_eq!(*tile, Tile::Gem(expected), "({x}, {y})");
             }
         }
     }
@@ -121,6 +133,11 @@ mod tests {
         for y in 0..100 {
             for x in 0..100 {
                 let a = ((y as f32 - 50.0).atan2(x as f32 - 50.0).to_degrees() + 360.0) % 360.0;
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a is in 0..360, so the sector is 0..6"
+                )]
                 let sector = (a / 60.0) as usize;
                 let c = [
                     [255, 0, 0],

@@ -117,6 +117,10 @@ pub fn board(
     let bonus = session.next_time_bonus();
 
     for q in session.pieces() {
+        #[expect(
+            clippy::float_cmp,
+            reason = "only the piece resting exactly on the selected cell is selected"
+        )]
         let selected = marks
             .selected
             .is_some_and(|c| q.pos == [c.x as f32, c.y as f32]);

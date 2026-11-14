@@ -36,6 +36,7 @@ pub struct Value {
 
 /// Every swap the game would take, with its value looking `ahead` moves further and
 /// weighing the moves it leaves open by `mobility`; best first.
+#[must_use]
 pub fn moves(board: &Board, ahead: u32, mobility: f32) -> Vec<(Swap, Value)> {
     let mut out: Vec<(Swap, Value)> = swaps()
         .filter_map(|swap| {
@@ -77,6 +78,7 @@ fn value(swap: Swap, outcome: &sim::Outcome, ahead: u32, mobility: f32) -> Value
 }
 
 /// The best swap, looking [`LOOKAHEAD`] moves ahead, without minding mobility.
+#[must_use]
 pub fn best(board: &Board) -> Option<Swap> {
     moves(board, LOOKAHEAD, 0.0).first().map(|m| m.0)
 }
@@ -118,7 +120,7 @@ mod tests {
     #[test]
     fn wilds_always_move_and_unknowns_never() {
         assert_eq!(moves(&parse(&["W1", "23"]), 0, 0.0).len(), 2);
-        assert!(moves(&parse(&["??", "??"]), 0, 0.0).is_empty());
+        assert_eq!(moves(&parse(&["??", "??"]), 0, 0.0), []);
     }
 
     #[test]

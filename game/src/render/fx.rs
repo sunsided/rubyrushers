@@ -92,18 +92,21 @@ pub struct Vanish {
 
 impl Vanish {
     /// Size factor: a short swell, then shrinking away.
+    #[must_use]
     pub fn scale(&self) -> f32 {
         let k = (self.age / VANISH_SECS).min(1.0);
         1.0 + 0.3 * (k * 3.0).min(1.0) - 1.3 * easing::out_cubic(k)
     }
 
     /// Opacity.
+    #[must_use]
     pub fn alpha(&self) -> f32 {
         let k = (self.age / VANISH_SECS).min(1.0);
         1.0 - k * k
     }
 
     /// Spin in radians (full effects).
+    #[must_use]
     pub fn spin(&self) -> f32 {
         self.age * 9.0
     }
@@ -134,6 +137,7 @@ fn center(c: [f32; 2]) -> [f32; 2] {
 }
 
 /// The display colour of gem colour `c`.
+#[must_use]
 pub fn gem_color(c: u8) -> Color {
     let [r, g, b] = BASE[usize::from(c).min(BASE.len() - 1)];
     Color::rgb(r, g, b)
@@ -472,6 +476,7 @@ impl Fx {
     }
 
     /// Size factor of the gem with `id`: below 1 while a new special gem pops in.
+    #[must_use]
     pub fn born_scale(&self, id: u32) -> f32 {
         self.born
             .iter()
@@ -480,6 +485,7 @@ impl Fx {
     }
 
     /// How far the gem with `id` is squashed from landing: 0 not at all, up to 1.
+    #[must_use]
     pub fn squash(&self, id: u32) -> f32 {
         self.landed
             .iter()
@@ -488,6 +494,7 @@ impl Fx {
     }
 
     /// Cleared gems still shrinking away.
+    #[must_use]
     pub fn vanishing(&self) -> &[Vanish] {
         &self.vanishing
     }
@@ -505,6 +512,10 @@ impl Fx {
 }
 
 /// Draws particle `q`; with full effects, sparks trail a streak.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "p painter, q particle, k age fraction and short geometry names"
+)]
 fn draw_particle(p: &mut Painter<'_>, layout: &Layout, q: &Particle, effects: Effects) {
     let k = q.age / q.ttl;
     let fade = 1.0 - k;

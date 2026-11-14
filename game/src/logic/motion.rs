@@ -21,6 +21,7 @@ pub struct Swap {
 
 impl Swap {
     /// The current offset from the cell, in cells.
+    #[must_use]
     pub fn offset(&self) -> [f32; 2] {
         let f = if self.bounce {
             let k = (self.t / BOUNCE_SECS).min(1.0);
@@ -41,6 +42,7 @@ impl Swap {
     }
 
     /// Whether the animation has ended.
+    #[must_use]
     pub fn done(&self) -> bool {
         self.t >= if self.bounce { BOUNCE_SECS } else { SWAP_SECS }
     }
@@ -63,11 +65,13 @@ pub struct Motion {
 
 impl Motion {
     /// Whether the gem rests in its cell: it can match and be swapped.
+    #[must_use]
     pub fn settled(&self) -> bool {
         self.swap.is_none() && self.fall == 0.0
     }
 
     /// Offset of the drawn gem from its cell, in cells, for gems falling along `dir`.
+    #[must_use]
     pub fn offset(&self, dir: [f32; 2]) -> [f32; 2] {
         let s = self.swap.map_or([0.0; 2], |s| s.offset());
         [s[0] + dir[0] * self.fall, s[1] + dir[1] * self.fall]

@@ -1,6 +1,7 @@
 //! Easing curves over `t` in `0.0..=1.0`.
 
 /// Slow start and end.
+#[must_use]
 pub fn in_out_cubic(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
 
@@ -12,11 +13,13 @@ pub fn in_out_cubic(t: f32) -> f32 {
 }
 
 /// Fast start, slow end.
+#[must_use]
 pub fn out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
 /// Overshoots a little, then settles.
+#[must_use]
 pub fn out_back(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     let c = 1.70158;

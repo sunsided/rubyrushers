@@ -1,4 +1,4 @@
-//! A minimal Chrome DevTools Protocol client: starts Chrome, talks to its page over one
+//! A minimal Chrome `DevTools` Protocol client: starts Chrome, talks to its page over one
 //! blocking websocket, one command at a time. Events are ignored.
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -13,7 +13,7 @@ use tungstenite::{Message, WebSocket};
 
 /// A running Chrome and a connection to its page.
 pub struct Cdp {
-    /// The page's DevTools socket.
+    /// The page's `DevTools` socket.
     socket: WebSocket<MaybeTlsStream<TcpStream>>,
     /// The id of the next command.
     next_id: u64,
@@ -45,6 +45,10 @@ fn chrome_binary() -> Result<PathBuf> {
 
 impl Cdp {
     /// Starts Chrome with `args` (besides its own) and connects to its first page.
+    ///
+    /// # Errors
+    ///
+    /// When no Chrome is found or it does not start, or its page cannot be reached.
     pub fn launch(args: &[String]) -> Result<Self> {
         let profile = std::env::temp_dir().join(format!("rubyrushers-bot-{}", std::process::id()));
         let mut chrome = Command::new(chrome_binary()?)
@@ -91,7 +95,11 @@ impl Cdp {
     }
 
     /// Sends a command and waits for its result.
-    pub fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+    ///
+    /// # Errors
+    ///
+    /// When the socket fails, a reply is not JSON, or Chrome answers with an error.
+    pub fn call(&mut self, method: &str, params: &Value) -> Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
 

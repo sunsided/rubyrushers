@@ -53,6 +53,7 @@ pub struct Session {
 
 impl Session {
     /// A new game of `mode`, its board drawn from `seed`.
+    #[must_use]
     pub fn new(mode: Mode, seed: u64) -> Self {
         let mut rng = Rng::new(seed);
 
@@ -75,22 +76,26 @@ impl Session {
     }
 
     /// The same game with time gems following `rule`.
+    #[must_use]
     pub fn with_time_rule(mut self, rule: TimeRule) -> Self {
         self.time_rule = rule;
         self
     }
 
     /// How much time gems add.
+    #[must_use]
     pub fn time_rule(&self) -> TimeRule {
         self.time_rule
     }
 
     /// Seconds the next time gem adds.
+    #[must_use]
     pub fn next_time_bonus(&self) -> f32 {
         self.time_rule.next(self.time_gems, self.time_added)
     }
 
     /// The gems by cell, moving ones included.
+    #[must_use]
     pub fn board(&self) -> &Board {
         self.field.board()
     }
@@ -101,26 +106,31 @@ impl Session {
     }
 
     /// The mode and its clock.
+    #[must_use]
     pub fn mode(&self) -> &Mode {
         &self.mode
     }
 
     /// Points so far.
+    #[must_use]
     pub fn score(&self) -> u64 {
         self.score
     }
 
     /// The deepest cascade so far.
+    #[must_use]
     pub fn best_cascade(&self) -> u32 {
         self.best_cascade
     }
 
     /// The speed streak (0: none).
+    #[must_use]
     pub fn speed(&self) -> u32 {
         self.speed
     }
 
     /// How much of the speed streak's window is left, `1.0..=0.0`.
+    #[must_use]
     pub fn speed_left(&self) -> f32 {
         if self.speed == 0 {
             0.0
@@ -130,11 +140,13 @@ impl Session {
     }
 
     /// Whether the game has ended.
+    #[must_use]
     pub fn is_over(&self) -> bool {
         self.over
     }
 
     /// Whether nothing on the board moves.
+    #[must_use]
     pub fn is_still(&self) -> bool {
         self.field.is_still() && self.armed.is_empty()
     }
@@ -145,6 +157,7 @@ impl Session {
     }
 
     /// A move the player could make, while the board is still.
+    #[must_use]
     pub fn hint(&self) -> Option<(Pos, Pos)> {
         if !self.is_still() {
             return None;
@@ -154,12 +167,14 @@ impl Session {
     }
 
     /// Which way gems fall.
+    #[must_use]
     pub fn gravity(&self) -> Gravity {
         self.field.gravity()
     }
 
     /// Whether the player may pick up the gem at `p` now (not while a due gravity turn
     /// waits for the board to rest).
+    #[must_use]
     pub fn can_move(&self, p: Pos) -> bool {
         !self.over && !self.time_up && !self.mode.turn_due() && self.field.is_settled(p)
     }
@@ -379,7 +394,11 @@ impl Session {
 
         let base = score::points(cleared.len(), &rewards, blasts.len(), cascade);
         let points = score::with_speed(base, self.speed);
-        let time_gems = cleared.iter().filter(|(g, _)| g.time_bonus).count() as u32;
+        let time_gems: u32 = cleared
+            .iter()
+            .filter(|(g, _)| g.time_bonus)
+            .map(|_| 1)
+            .sum();
         let time_added = self.add_time_gems(time_gems);
 
         self.score += points;
@@ -444,7 +463,7 @@ mod tests {
     fn assert_sound(s: &Session) {
         assert!(s.is_still());
         assert!(Pos::all().all(|p| s.board().get(p).is_some()));
-        assert!(matcher::find(s.board(), &[]).is_empty());
+        assert_eq!(matcher::find(s.board(), &[]), []);
     }
 
     #[test]
@@ -497,7 +516,10 @@ mod tests {
 
         for t in 0..ticks {
             if t % 3 == 0 {
-                let a = Pos::new(rng.below(SIZE as u32) as i32, rng.below(SIZE as u32) as i32);
+                let a = Pos::new(
+                    rng.below(SIZE as u32).cast_signed(),
+                    rng.below(SIZE as u32).cast_signed(),
+                );
 
                 let b = if rng.one_in(2) {
                     Pos::new(a.x + 1, a.y)
@@ -520,6 +542,10 @@ mod tests {
     }
 
     /// No two gems that are not swapping overlap in a column.
+    #[expect(
+        clippy::float_cmp,
+        reason = "cells are whole numbers; only pieces exactly on this lane count"
+    )]
     fn assert_apart(s: &Session) {
         for x in 0..SIZE {
             let mut rows: Vec<f32> = s
@@ -691,7 +717,10 @@ mod tests {
 
         for t in 0..(120 * 50) {
             if t % 4 == 0 {
-                let a = Pos::new(rng.below(SIZE as u32) as i32, rng.below(SIZE as u32) as i32);
+                let a = Pos::new(
+                    rng.below(SIZE as u32).cast_signed(),
+                    rng.below(SIZE as u32).cast_signed(),
+                );
                 let b = Pos::new(a.x + 1, a.y);
 
                 if b.on_board() && moves::is_valid(s.board(), a, b) {
@@ -719,6 +748,10 @@ mod tests {
     }
 
     /// No two gems that are not swapping overlap in a lane of the current gravity.
+    #[expect(
+        clippy::float_cmp,
+        reason = "cells are whole numbers; only pieces exactly on this lane count"
+    )]
     fn assert_apart_along(s: &Session) {
         let horizontal = matches!(s.gravity(), Gravity::Left | Gravity::Right);
         let (along, across) = if horizontal { (0, 1) } else { (1, 0) };

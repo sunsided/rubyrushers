@@ -51,6 +51,7 @@ pub enum Sfx {
 
 impl Sound {
     /// Renders every effect.
+    #[must_use]
     pub fn new() -> Self {
         let mut s = Synth::new(44_100);
         let matches = CASCADE_NOTES

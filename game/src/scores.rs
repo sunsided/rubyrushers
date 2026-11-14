@@ -1,6 +1,8 @@
 //! Best scores per mode, kept between runs: a small text file natively, the browser's
 //! local storage on the web.
 
+use std::fmt::Write as _;
+
 use crate::logic::Mode;
 
 /// The key per mode in the saved text (title button order).
@@ -10,6 +12,7 @@ const KEYS: [&str; 3] = ["rush", "endless", "tilt"];
 pub type Bests = [u64; 3];
 
 /// Reads `key=value` lines; unknown keys and bad lines are skipped.
+#[must_use]
 pub fn parse(text: &str) -> Bests {
     let mut bests = [0; 3];
 
@@ -30,14 +33,19 @@ pub fn parse(text: &str) -> Bests {
 }
 
 /// Writes one `key=value` line per mode.
+#[must_use]
 pub fn format(bests: &Bests) -> String {
     KEYS.iter()
         .zip(bests)
-        .map(|(k, v)| format!("{k}={v}\n"))
-        .collect()
+        .fold(String::new(), |mut out, (k, v)| {
+            // Writing to a String cannot fail.
+            let _ = writeln!(out, "{k}={v}");
+            out
+        })
 }
 
 /// The index of `mode` in [`Bests`].
+#[must_use]
 pub fn index(mode: &Mode) -> usize {
     match mode {
         Mode::Rush { .. } => 0,
@@ -47,6 +55,7 @@ pub fn index(mode: &Mode) -> usize {
 }
 
 /// The saved best scores (all zero when none were saved or they cannot be read).
+#[must_use]
 pub fn load() -> Bests {
     store::read().map(|t| parse(&t)).unwrap_or_default()
 }

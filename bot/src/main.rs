@@ -1,4 +1,4 @@
-//! Plays RubyRushers in Chromium from screenshots alone.
+//! Plays `RubyRushers` in Chromium from screenshots alone.
 //!
 //! ```text
 //! rubyrushers-bot [--dist dist | --url http://localhost:8080/] [--mode rush|endless|tilt]
@@ -83,13 +83,7 @@ fn play(args: &[String], watch: bool) -> Result<()> {
 
     let secs: f32 = value(args, "--secs").map_or(Ok(600.0), |s| s.parse())?;
     let patient = mode == "endless";
-
-    // Only Endless ends when no move is left; elsewhere the board reshuffles.
-    let mobility: f32 = match value(args, "--mobility") {
-        Some(w) => w.parse().context("--mobility needs a number")?,
-        None if patient => solver::MOBILITY,
-        None => 0.0,
-    };
+    let mobility = mobility(args, patient)?;
 
     let mut screen = open(args, &mode)?;
 
@@ -102,7 +96,7 @@ fn play(args: &[String], watch: bool) -> Result<()> {
 
     let start = Instant::now();
     let mut last: Option<Board> = None;
-    let mut moved = Instant::now();
+    let mut last_move = Instant::now();
     // Per cell: until when the bot's own last moves are expected to keep it changing.
     let mut busy = [[start; SIZE]; SIZE];
     let mut moves = 0;
@@ -123,7 +117,7 @@ fn play(args: &[String], watch: bool) -> Result<()> {
         spent[0] += (t1 - t0).as_secs_f32();
         spent[1] += (now - t1).as_secs_f32();
 
-        if moved.elapsed().as_secs_f32() > STUCK_SECS {
+        if last_move.elapsed().as_secs_f32() > STUCK_SECS {
             println!("no move in {STUCK_SECS} s: game over");
             break;
         }
@@ -157,7 +151,7 @@ fn play(args: &[String], watch: bool) -> Result<()> {
 
             spent[3] += t3.elapsed().as_secs_f32();
             moves += 1;
-            moved = Instant::now();
+            last_move = Instant::now();
             println!("move {moves}: {a:?} <-> {b:?}");
 
             // Leave the cells this move will change alone until they settled.
@@ -180,15 +174,7 @@ fn play(args: &[String], watch: bool) -> Result<()> {
         }
 
         if watch {
-            let status = if plan.is_some() {
-                "moving"
-            } else if patient && !settled {
-                "waiting for the board to settle"
-            } else if !clear {
-                "board covered: waiting"
-            } else {
-                "no trusted move: waiting"
-            };
+            let status = status(plan.is_some(), patient && !settled, clear);
 
             *insight::LATEST.lock().expect("the viewer does not panic") = Some(Insight {
                 crop: img,
@@ -214,6 +200,35 @@ fn play(args: &[String], watch: bool) -> Result<()> {
 
     insight::FINISHED.store(true, Ordering::Relaxed);
 
+    save_shot(args, &mut screen)
+}
+
+/// The weight of the moves a swap leaves open: `--mobility`, else
+/// [`solver::MOBILITY`] where only running out of moves ends the game (Endless; elsewhere
+/// the board reshuffles), else none.
+fn mobility(args: &[String], patient: bool) -> Result<f32> {
+    match value(args, "--mobility") {
+        Some(w) => w.parse().context("--mobility needs a number"),
+        None if patient => Ok(solver::MOBILITY),
+        None => Ok(0.0),
+    }
+}
+
+/// What the bot is doing this round, in a few words, for the viewer.
+fn status(moving: bool, unsettled: bool, clear: bool) -> &'static str {
+    if moving {
+        "moving"
+    } else if unsettled {
+        "waiting for the board to settle"
+    } else if !clear {
+        "board covered: waiting"
+    } else {
+        "no trusted move: waiting"
+    }
+}
+
+/// Saves the whole page to the file after `--shot`, if given.
+fn save_shot(args: &[String], screen: &mut Screen) -> Result<()> {
     if let Some(path) = value(args, "--shot") {
         screen.set_clip(None);
         std::fs::write(&path, screen.png()?)?;

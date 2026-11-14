@@ -38,6 +38,12 @@ fn hash(i: u32, k: u32) -> f32 {
 }
 
 /// The six gem colours in a loop: `u` 0 is the first, 1 the next, blended in between.
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "u is wrapped into 0..6 first, so its floor is a colour index"
+)]
 pub fn rainbow(u: f32) -> Color {
     let u = u.rem_euclid(6.0);
     let i = u.floor() as u8;
@@ -45,13 +51,19 @@ pub fn rainbow(u: f32) -> Color {
 }
 
 /// Draws the backdrop at clock `time`.
-pub fn backdrop(p: &mut Painter<'_>, l: &Layout, atlas: TextureId, time: f32, effects: Effects) {
+pub fn backdrop(
+    p: &mut Painter<'_>,
+    layout: &Layout,
+    atlas: TextureId,
+    time: f32,
+    effects: Effects,
+) {
     let full = effects.full();
     let t = if full { time } else { 0.0 };
 
     if full {
-        glows(p, l, t, 0.22);
-        twinkles(p, l, t);
+        glows(p, layout, t, 0.22);
+        twinkles(p, layout, t);
     }
 
     // Small, faint and slow ones first: they are further away.
@@ -62,18 +74,18 @@ pub fn backdrop(p: &mut Painter<'_>, l: &Layout, atlas: TextureId, time: f32, ef
         let depth = hash(i, 1);
         let size = 30.0 + depth * 60.0;
         let speed = 14.0 + depth * 40.0;
-        let span = DESIGN_H + 2.0 * size;
-        let y = (hash(i, 2) * span + speed * t).rem_euclid(span) - size;
+        let travel = DESIGN_H + 2.0 * size;
+        let y = (hash(i, 2) * travel + speed * t).rem_euclid(travel) - size;
         let x = hash(i, 0) * (DESIGN_W + 60.0) - 30.0 + 20.0 * (t * 0.5 + hash(i, 3) * TAU).sin();
-        let spin = hash(i, 4) * TAU + (hash(i, 5) - 0.5) * 1.4 * t;
-        let tile = i % TILES;
+        let angle = hash(i, 4) * TAU + (hash(i, 5) - 0.5) * 1.4 * t;
+        let sprite = i % TILES;
         p.draw_sprite(
             atlas,
-            l.px([x - size / 2.0, y - size / 2.0]),
-            [l.len(size); 2],
+            layout.px([x - size / 2.0, y - size / 2.0]),
+            [layout.len(size); 2],
         )
-        .region([(tile * TILE) as f32, 0.0], [TILE as f32; 2])
-        .rotation(spin)
+        .region([(sprite * TILE) as f32, 0.0], [TILE as f32; 2])
+        .rotation(angle)
         .color(Color::WHITE.with_alpha(0.25 + 0.4 * depth))
         .layer(GEMS);
     }
@@ -81,23 +93,32 @@ pub fn backdrop(p: &mut Painter<'_>, l: &Layout, atlas: TextureId, time: f32, ef
 
 /// Large soft patches of gem colour wandering about, `strength` their opacity at the
 /// middle.
-pub fn glows(p: &mut Painter<'_>, l: &Layout, t: f32, strength: f32) {
-    for i in 0..6u32 {
-        let a = t * (0.07 + 0.05 * hash(i, 10)) + hash(i, 11) * TAU;
+pub fn glows(p: &mut Painter<'_>, layout: &Layout, t: f32, strength: f32) {
+    for i in 0..6u8 {
+        let a = t * (0.07 + 0.05 * hash(i.into(), 10)) + hash(i.into(), 11) * TAU;
         let c = [
             DESIGN_W / 2.0 + 360.0 * a.cos(),
             DESIGN_H / 2.0 + 260.0 * (a * 1.3).sin(),
         ];
-        let color = gem_color(i as u8).with_alpha(strength);
-        soft_disc(p, l.px(c), l.len(280.0), color, GLOWS);
+        let color = gem_color(i).with_alpha(strength);
+        soft_disc(p, layout.px(c), layout.len(280.0), color, GLOWS);
     }
 }
 
 /// Four-pointed sparkles popping up all over, each somewhere new every time.
-fn twinkles(p: &mut Painter<'_>, l: &Layout, t: f32) {
+#[expect(
+    clippy::many_single_char_names,
+    reason = "sparkle geometry: t time, u/k phase, c centre, s arm length, w line width"
+)]
+fn twinkles(p: &mut Painter<'_>, layout: &Layout, t: f32) {
     for i in 0..TWINKLE_COUNT {
         let period = 1.6 + 2.0 * hash(i, 20);
         let u = t / period + hash(i, 21);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the round only seeds the hash, so any wrap-around is fine"
+        )]
         let round = u.floor() as u32;
         let k = u.fract();
 
@@ -117,9 +138,9 @@ fn twinkles(p: &mut Painter<'_>, l: &Layout, t: f32) {
         } else {
             rainbow(hash(i + round, 25) * 6.0)
         };
-        let s = l.len((8.0 + 10.0 * hash(i + round, 26)) * grow);
-        let c = l.px(pos);
-        let w = l.len(1.8);
+        let s = layout.len((8.0 + 10.0 * hash(i + round, 26)) * grow);
+        let c = layout.px(pos);
+        let w = layout.len(1.8);
         let color = color.with_alpha(0.9);
         let add = BlendMode::Additive;
         p.line_ex([c[0] - s, c[1]], [c[0] + s, c[1]], w, color, TWINKLES, add);

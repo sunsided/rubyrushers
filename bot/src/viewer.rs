@@ -52,17 +52,31 @@ static SHOT: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Opens the window and shows the bot's rounds until it is closed, or, with `shot`, until
 /// the bot is done and the window saved a picture of itself there.
+///
+/// # Errors
+///
+/// When the window or its graphics context cannot be created.
+///
+/// # Panics
+///
+/// When another thread panicked while holding the screenshot path.
 pub fn show(shot: Option<PathBuf>) -> Result<()> {
     *SHOT.lock().expect("not poisoned") = shot;
 
-    game_toolkit::prelude::run::<Viewer>(AppConfig {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the design size is a whole, positive number of pixels"
+    )]
+    let config = AppConfig {
         title: "RubyRushers bot: what it sees and thinks".into(),
         width: W as u32,
         height: H as u32,
         msaa_samples: 4,
         ..Default::default()
-    })
-    .map_err(|e| anyhow::anyhow!("viewer: {e}"))
+    };
+
+    game_toolkit::prelude::run::<Viewer>(config).map_err(|e| anyhow::anyhow!("viewer: {e}"))
 }
 
 /// The viewer's state.
@@ -121,6 +135,10 @@ impl Game for Viewer {
         match self.crop {
             Some((tex, s)) if s == size => ctx.gfx.update_texture_rgba(tex, &rgba),
             _ => {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a board crop is a few hundred pixels wide"
+                )]
                 let tex = ctx.gfx.create_texture_rgba(
                     size[0] as u32,
                     size[1] as u32,
@@ -139,13 +157,13 @@ impl Game for Viewer {
     }
 
     fn render(&mut self, ctx: &mut Context, frame: &mut Frame) {
-        let (w, h) = ctx.gfx.size();
-        let v = View::fit(w as f32, h as f32);
+        let (width, height) = ctx.gfx.size();
+        let v = View::fit(width as f32, height as f32);
         let mut p = frame.painter(&mut ctx.gfx);
 
         p.rect_ex(
             [0.0, 0.0],
-            [w as f32, h as f32],
+            [width as f32, height as f32],
             Color::rgb(0.06, 0.05, 0.1),
             Layer(0),
             BlendMode::Alpha,
@@ -305,9 +323,9 @@ fn candidates(p: &mut Painter<'_>, v: &View, plan: Option<&Plan>) {
 
 /// Moves, time and what each step of a round costs.
 fn stats(p: &mut Painter<'_>, v: &View, i: &Insight) {
-    let (x, top) = (LEFTS[2], TOP + SIDE + 40.0);
+    let (left, top) = (LEFTS[2], TOP + SIDE + 40.0);
 
-    v.text(p, [x, top], "Pace", 22.0, Color::WHITE, Align::Left);
+    v.text(p, [left, top], "Pace", 22.0, Color::WHITE, Align::Left);
 
     let rate = i.moves as f32 / i.elapsed.max(0.001);
     let [capture, read, solve, click] = i.timings;
@@ -324,7 +342,7 @@ fn stats(p: &mut Painter<'_>, v: &View, i: &Insight) {
     for (k, l) in lines.iter().enumerate() {
         v.text(
             p,
-            [x, top + 36.0 + k as f32 * 24.0],
+            [left, top + 36.0 + k as f32 * 24.0],
             l,
             16.0,
             MUTED,
@@ -341,8 +359,8 @@ fn stats(p: &mut Painter<'_>, v: &View, i: &Insight) {
     for (k, (c, l)) in legend.iter().enumerate() {
         let y = top + 120.0 + k as f32 * 22.0;
 
-        v.rect(p, [x, y + 3.0], [14.0, 14.0], *c);
-        v.text(p, [x + 24.0, y], l, 15.0, MUTED, Align::Left);
+        v.rect(p, [left, y + 3.0], [14.0, 14.0], *c);
+        v.text(p, [left + 24.0, y], l, 15.0, MUTED, Align::Left);
     }
 }
 
@@ -361,11 +379,22 @@ fn tile_color(t: Tile) -> Color {
 }
 
 /// A bright colour of `degrees` hue.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "h, x, r, g and b are the textbook names of the HSV conversion"
+)]
 fn hue(degrees: f32) -> Color {
     let h = degrees.rem_euclid(360.0) / 60.0;
     let x = 1.0 - (h % 2.0 - 1.0).abs();
 
-    let (r, g, b) = match h as u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "h is in 0..6; the sector is its whole part"
+    )]
+    let sector = h as u32;
+
+    let (r, g, b) = match sector {
         0 => (1.0, x, 0.0),
         1 => (x, 1.0, 0.0),
         2 => (0.0, 1.0, x),
@@ -462,19 +491,16 @@ impl View {
         let c = self.px([at[0] + cell / 2.0, at[1] + cell / 2.0]);
         let r = self.len(cell * 0.36);
 
-        match t {
-            Tile::Unknown => {
-                let mid = [at[0] + cell / 2.0, at[1] + cell * 0.22];
-                self.text(p, mid, "?", 22.0, MUTED.with_alpha(0.6), Align::Center);
-            }
-            _ => {
-                let width = if solid { 0.0 } else { self.len(2.5) };
-                p.circle_ex(c, r, width, tile_color(t), SHAPES);
+        if t == Tile::Unknown {
+            let mid = [at[0] + cell / 2.0, at[1] + cell * 0.22];
+            self.text(p, mid, "?", 22.0, MUTED.with_alpha(0.6), Align::Center);
+        } else {
+            let width = if solid { 0.0 } else { self.len(2.5) };
+            p.circle_ex(c, r, width, tile_color(t), SHAPES);
 
-                if t == Tile::Wild {
-                    let mid = [at[0] + cell / 2.0, at[1] + cell * 0.25];
-                    self.text(p, mid, "W", 18.0, Color::rgb(0.1, 0.1, 0.2), Align::Center);
-                }
+            if t == Tile::Wild {
+                let mid = [at[0] + cell / 2.0, at[1] + cell * 0.25];
+                self.text(p, mid, "W", 18.0, Color::rgb(0.1, 0.1, 0.2), Align::Center);
             }
         }
     }

@@ -20,6 +20,7 @@ pub struct Board {
 
 impl Board {
     /// A board without gems.
+    #[must_use]
     pub fn empty() -> Self {
         Self {
             cells: [None; (SIZE * SIZE) as usize],
@@ -42,10 +43,11 @@ impl Board {
     /// The row-major index of an on-board cell.
     fn index(p: Pos) -> usize {
         debug_assert!(p.on_board(), "{p:?} is off the board");
-        (p.y * SIZE + p.x) as usize
+        usize::try_from(p.y * SIZE + p.x).expect("an on-board cell")
     }
 
     /// The gem at `p`; `None` for an empty cell or one off the board.
+    #[must_use]
     pub fn get(&self, p: Pos) -> Option<Gem> {
         if p.on_board() {
             self.cells[Self::index(p)]
@@ -106,6 +108,10 @@ impl Board {
 
     /// Mixes the gems up until no three line up and a move exists; falls back to a new
     /// random board. Returns every gem with its new cell.
+    ///
+    /// # Panics
+    ///
+    /// Never in practice: only if a full board came out with an empty cell.
     pub fn reshuffle(&mut self, rng: &mut Rng) -> Vec<(Gem, Pos)> {
         let mut gems: Vec<Gem> = Pos::all().filter_map(|p| self.get(p)).collect();
         let shuffled = (0..100).any(|_| {
@@ -140,11 +146,12 @@ impl Board {
     /// A board from rows of text, for tests. Each cell is one character: `0`-`6` a plain gem, `A`-`G` a bomb of colour 0-6,
     /// `a`-`g` a cross of colour 0-6, `W` a wild, `.` empty. Missing rows are empty.
     #[cfg(test)]
+    #[must_use]
     pub fn parse(rows: &[&str]) -> Self {
         let mut board = Self::empty();
 
-        for (y, row) in rows.iter().enumerate() {
-            for (x, ch) in row.chars().enumerate() {
+        for (y, row) in (0..).zip(rows) {
+            for (x, ch) in (0..).zip(row.chars()) {
                 let (color, power) = match ch {
                     '0'..='6' => (ch as u8 - b'0', Power::None),
                     'A'..='G' => (ch as u8 - b'A', Power::Bomb),
@@ -154,7 +161,7 @@ impl Board {
                 };
 
                 let gem = board.new_gem(color, power, false);
-                board.set(Pos::new(x as i32, y as i32), Some(gem));
+                board.set(Pos::new(x, y), Some(gem));
             }
         }
 
@@ -188,6 +195,6 @@ mod tests {
         before.sort_unstable();
         after.sort_unstable();
         assert_eq!(before, after);
-        assert!(matcher::find(&board, &[]).is_empty());
+        assert_eq!(matcher::find(&board, &[]), []);
     }
 }

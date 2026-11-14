@@ -13,11 +13,13 @@ pub enum Effects {
 
 impl Effects {
     /// Whether this is the full show.
+    #[must_use]
     pub fn full(self) -> bool {
         self == Self::Full
     }
 
     /// The other level.
+    #[must_use]
     pub fn toggled(self) -> Self {
         match self {
             Self::Full => Self::Calm,
@@ -26,6 +28,7 @@ impl Effects {
     }
 
     /// The name shown to the player.
+    #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::Full => "Full",

@@ -22,6 +22,7 @@ pub struct Layout {
 
 impl Layout {
     /// The layout for a window of `w` × `h` pixels.
+    #[must_use]
     pub fn fit(w: f32, h: f32) -> Self {
         let scale = (w / DESIGN_W).min(h / DESIGN_H);
         Self {
@@ -31,6 +32,7 @@ impl Layout {
     }
 
     /// The same layout moved by `d` design units (screen shake).
+    #[must_use]
     pub fn shifted(self, d: [f32; 2]) -> Self {
         Self {
             origin: [
@@ -42,6 +44,7 @@ impl Layout {
     }
 
     /// Window position of design point `p`.
+    #[must_use]
     pub fn px(&self, p: [f32; 2]) -> [f32; 2] {
         [
             self.origin[0] + p[0] * self.scale,
@@ -50,6 +53,7 @@ impl Layout {
     }
 
     /// Design position of window position `p`.
+    #[must_use]
     pub fn design(&self, p: [f32; 2]) -> [f32; 2] {
         [
             (p[0] - self.origin[0]) / self.scale,
@@ -58,11 +62,13 @@ impl Layout {
     }
 
     /// A design length in window pixels.
+    #[must_use]
     pub fn len(&self, d: f32) -> f32 {
         d * self.scale
     }
 
     /// Design position of the centre of (possibly fractional) cell `c`.
+    #[must_use]
     pub fn cell_center(c: [f32; 2]) -> [f32; 2] {
         [
             BOARD[0] + (c[0] + 0.5) * CELL,
@@ -71,6 +77,11 @@ impl Layout {
     }
 
     /// The board cell under window position `p`, if any.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "floored cell coordinates near the board are small; off-board cells are rejected"
+    )]
     pub fn cell_at(&self, p: [f32; 2]) -> Option<Pos> {
         let d = self.design(p);
         let x = (d[0] - BOARD[0]) / CELL;
@@ -80,6 +91,7 @@ impl Layout {
     }
 
     /// The window size of one cell.
+    #[must_use]
     pub fn cell(&self) -> f32 {
         CELL * self.scale
     }

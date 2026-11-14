@@ -1,4 +1,4 @@
-//! The RubyRushers autoplayer: sees the game only through screenshots and plays it
+//! The `RubyRushers` autoplayer: sees the game only through screenshots and plays it
 //! through mouse clicks, like a person at the screen would.
 //!
 //! It never links the game. Everything it knows comes from pixels: [`grid`] finds the

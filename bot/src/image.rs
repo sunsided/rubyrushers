@@ -15,6 +15,7 @@ pub struct Image {
 
 impl Image {
     /// An image of `width` × `height` filled with `color`.
+    #[must_use]
     pub fn filled(width: usize, height: usize, color: [u8; 3]) -> Self {
         Self {
             width,
@@ -24,6 +25,10 @@ impl Image {
     }
 
     /// Decodes a PNG (RGB or RGBA, 8 bit after expansion).
+    ///
+    /// # Errors
+    ///
+    /// When `bytes` is not a valid PNG, or its pixels are neither RGB nor RGBA.
     pub fn from_png(bytes: &[u8]) -> Result<Self> {
         let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         decoder.set_transformations(png::Transformations::normalize_to_color8());
@@ -52,6 +57,7 @@ impl Image {
     }
 
     /// The pixel at (`x`, `y`).
+    #[must_use]
     pub fn at(&self, x: usize, y: usize) -> [u8; 3] {
         let i = (y * self.width + x) * 3;
         [self.rgb[i], self.rgb[i + 1], self.rgb[i + 2]]
@@ -65,6 +71,15 @@ impl Image {
 }
 
 /// Hue in degrees `0..360`, saturation and value in `0..=1`.
+#[must_use]
+#[expect(
+    clippy::many_single_char_names,
+    reason = "r, g, b, h, s and d are the textbook names of the HSV conversion"
+)]
+#[expect(
+    clippy::float_cmp,
+    reason = "max is exactly one of r, g and b; the comparison finds which"
+)]
 pub fn hsv(c: [u8; 3]) -> (f32, f32, f32) {
     let [r, g, b] = c.map(|v| f32::from(v) / 255.0);
     let max = r.max(g).max(b);

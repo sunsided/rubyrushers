@@ -45,6 +45,7 @@ pub fn set_options(options: Options) {
 }
 
 /// The window and run-loop settings.
+#[must_use]
 pub fn config() -> AppConfig {
     AppConfig {
         title: "RubyRushers".into(),
@@ -180,10 +181,12 @@ impl App {
             let d = [mouse[0] - start[0], mouse[1] - start[1]];
 
             if d[0].abs().max(d[1].abs()) > SWIPE_CELLS * layout.cell() {
+                // One cell along the flick's longer axis, which is never zero here.
+                let step = |v: f32| if v > 0.0 { 1 } else { -1 };
                 let to = if d[0].abs() > d[1].abs() {
-                    Pos::new(c.x + d[0].signum() as i32, c.y)
+                    Pos::new(c.x + step(d[0]), c.y)
                 } else {
-                    Pos::new(c.x, c.y + d[1].signum() as i32)
+                    Pos::new(c.x, c.y + step(d[1]))
                 };
 
                 if to.on_board() {
@@ -331,6 +334,11 @@ impl App {
     }
 
     /// The score panel beside the board.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the shown score counts up from 0 to the real score, a u64; dropping the fraction is the point"
+    )]
     fn draw_panel(&self, p: &mut Painter<'_>, base: &Layout) {
         let best = self.bests[self.mode_index()];
         hud::panel(
@@ -521,6 +529,14 @@ fn prefers_reduced_motion() -> bool {
 }
 
 /// A seed from the wall clock, so every launch deals new boards.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "any 64 bits of the clock make a seed"
+)]
+#[cfg_attr(
+    target_arch = "wasm32",
+    expect(clippy::cast_sign_loss, reason = "the page's clock is past 1970")
+)]
 fn clock_seed() -> u64 {
     #[cfg(not(target_arch = "wasm32"))]
     {
