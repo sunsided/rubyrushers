@@ -390,6 +390,9 @@ impl Game for App {
         scene::background(&mut p, w, h);
         // The title stands alone; the board only shows once a game is dealt.
         if self.screen != Screen::Title {
+            if self.effects.full() {
+                showcase::glows(&mut p, &base, self.clock, 0.1);
+            }
             let (session, fx, effects) = (&self.session, &self.fx, self.effects);
             scene::board(
                 &mut p, &layout, session, fx, self.atlas, self.clock, marks, effects,

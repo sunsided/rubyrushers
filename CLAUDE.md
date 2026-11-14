@@ -14,7 +14,8 @@ the toolkit sources.
   any two settled gems while the rest still moves.
 - `src/render/` - draws the session's pieces in a 960x720 design space scaled to the
   window (`Layout`). `Fx` turns events into vanishing gems, sparks and popups; `Effects`
-  (Full/Calm) gates shake, spin, pulsing and ambient sparkle; `gem_art` rasterises the
+  (Full/Calm) gates shake, spin, pulsing, the board's glowing frame, halos, shine and
+  landing squash, and ambient sparkle; `showcase` draws the title backdrop; `gem_art` rasterises the
   gem atlas at start-up.
 - `src/sound.rs` - synthesised effects (`synth` feature), no audio files.
 - `src/app.rs` - the only glue between input, logic, view and sound.
@@ -30,6 +31,8 @@ the toolkit sources.
   docs) must pass.
 - Own names and look: no other game's names in identifiers, text or assets.
 - Keep gems distinct by silhouette and colour: the bot reads only screenshots. Do not add
-  hooks that expose game state to it. The web build takes the CLI flags as query
+  hooks that expose game state to it. Anything drawn between gems must stay dark and
+  unsaturated (the bot finds gems as colourful blobs): rerun `task bot:accuracy` after
+  visual changes. The web build takes the CLI flags as query
   parameters (`?mode=endless&seed=3&calm`); that is how the harness deals known boards.
 - Keep code wasm-safe (no `std::time::Instant`; `SystemTime` only behind `cfg`).

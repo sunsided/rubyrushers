@@ -1,6 +1,7 @@
 //! The title screen's backdrop: gems drifting down behind the buttons, slow coloured glows
-//! and twinkles. Everything is a function of the clock, so it keeps no state. Calm effects
-//! freeze the gems where they are and leave out the glows and twinkles.
+//! (also behind the board while playing) and twinkles. Everything is a function of the
+//! clock, so it keeps no state. Calm effects freeze the gems where they are and leave out
+//! the glows and twinkles.
 
 use std::f32::consts::TAU;
 
@@ -10,6 +11,7 @@ use super::effects::Effects;
 use super::fx::gem_color;
 use super::gem_art::{TILE, TILES};
 use super::layout::{DESIGN_H, DESIGN_W, Layout};
+use super::scene::soft_disc;
 
 /// The coloured glows.
 const GLOWS: Layer = Layer(1);
@@ -46,7 +48,7 @@ pub fn backdrop(p: &mut Painter<'_>, l: &Layout, atlas: TextureId, time: f32, ef
     let full = effects.full();
     let t = if full { time } else { 0.0 };
     if full {
-        glows(p, l, t);
+        glows(p, l, t, 0.22);
         twinkles(p, l, t);
     }
     // Small, faint and slow ones first: they are further away.
@@ -73,30 +75,17 @@ pub fn backdrop(p: &mut Painter<'_>, l: &Layout, atlas: TextureId, time: f32, ef
     }
 }
 
-/// Large soft patches of gem colour wandering about.
-fn glows(p: &mut Painter<'_>, l: &Layout, t: f32) {
+/// Large soft patches of gem colour wandering about, `strength` their opacity at the
+/// middle.
+pub fn glows(p: &mut Painter<'_>, l: &Layout, t: f32, strength: f32) {
     for i in 0..6u32 {
         let a = t * (0.07 + 0.05 * hash(i, 10)) + hash(i, 11) * TAU;
         let c = [
             DESIGN_W / 2.0 + 360.0 * a.cos(),
             DESIGN_H / 2.0 + 260.0 * (a * 1.3).sin(),
         ];
-        let (center, r) = (l.px(c), l.len(280.0));
-        let inner = gem_color(i as u8).with_alpha(0.22);
-        let outer = inner.with_alpha(0.0);
-        // A fan of slices fading from the middle out: no hard edge.
-        const SLICES: u32 = 40;
-        let rim = |k: u32| {
-            let a = k as f32 / SLICES as f32 * TAU;
-            [center[0] + r * a.cos(), center[1] + r * a.sin()]
-        };
-        for k in 0..SLICES {
-            p.quad_colored(
-                [center, center, rim(k + 1), rim(k)],
-                [inner, inner, outer, outer],
-                GLOWS,
-            );
-        }
+        let color = gem_color(i as u8).with_alpha(strength);
+        soft_disc(p, l.px(c), l.len(280.0), color, GLOWS);
     }
 }
 

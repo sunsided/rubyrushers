@@ -23,6 +23,8 @@ const MAX_PARTICLES: usize = 3000;
 const VANISH_SECS: f32 = 0.25;
 /// Seconds a new special gem takes to pop in.
 const BORN_SECS: f32 = 0.3;
+/// Seconds a landed gem takes to squash and spring back.
+const LAND_SECS: f32 = 0.2;
 
 /// What a particle looks like.
 #[derive(Clone, Copy, Debug)]
@@ -37,6 +39,8 @@ enum Shape {
     Glint,
     /// A faint dot drifting behind the board.
     Mote,
+    /// A soft burst of light that swells and fades.
+    Flash,
 }
 
 /// One particle.
@@ -116,6 +120,10 @@ pub struct Fx {
     vanishing: Vec<Vanish>,
     /// New special gems popping in: id and seconds since.
     born: Vec<(u32, f32)>,
+    /// Gems that were falling last frame.
+    falling: Vec<u32>,
+    /// Gems that just landed: id and seconds since.
+    landed: Vec<(u32, f32)>,
     /// Screen shake strength in design units, decaying.
     shake: f32,
 }
@@ -151,10 +159,23 @@ impl Fx {
             };
             let n = match (effects, gem.power) {
                 (Effects::Calm, _) => 2,
-                (Effects::Full, Power::None) => 9,
-                (Effects::Full, _) => 24,
+                (Effects::Full, Power::None) => 12,
+                (Effects::Full, _) => 32,
             };
             self.sparks(center(pos), color, n, rng);
+            if effects.full() {
+                // Deeper cascades burn brighter.
+                let size = 50.0 + 8.0 * clear.cascade.min(6) as f32;
+                self.push(Particle {
+                    pos: center(pos),
+                    vel: [0.0; 2],
+                    age: 0.0,
+                    ttl: 0.35,
+                    color,
+                    size,
+                    shape: Shape::Flash,
+                });
+            }
         }
         for (gem, _) in &clear.created {
             self.born.push((gem.id, 0.0));
@@ -302,7 +323,7 @@ impl Fx {
                     p.pos[0] += p.vel[0] * dt;
                     p.pos[1] += p.vel[1] * dt;
                 }
-                _ => {}
+                Shape::Ring | Shape::Beam(_) | Shape::Glint | Shape::Flash => {}
             }
         }
         self.particles.retain(|p| p.age < p.ttl);
@@ -321,10 +342,25 @@ impl Fx {
             b.1 += dt;
         }
         self.born.retain(|b| b.1 < BORN_SECS);
+        for l in &mut self.landed {
+            l.1 += dt;
+        }
+        self.landed.retain(|l| l.1 < LAND_SECS);
+        let pieces: Vec<Piece> = pieces.collect();
+        for q in &pieces {
+            if q.speed == 0.0 && self.falling.contains(&q.gem.id) {
+                self.landed.push((q.gem.id, 0.0));
+            }
+        }
+        self.falling = pieces
+            .iter()
+            .filter(|q| q.speed > 0.0)
+            .map(|q| q.gem.id)
+            .collect();
         self.shake = (self.shake - dt * 40.0).max(0.0);
 
         if effects.full() {
-            self.ambient(dt, rng, pieces);
+            self.ambient(dt, rng, &pieces);
         } else {
             self.particles
                 .retain(|p| !matches!(p.shape, Shape::Glint | Shape::Mote));
@@ -332,10 +368,10 @@ impl Fx {
     }
 
     /// Glints on resting gems and motes behind the board.
-    fn ambient(&mut self, dt: f32, rng: &mut Rng, pieces: impl Iterator<Item = Piece>) {
+    fn ambient(&mut self, dt: f32, rng: &mut Rng, pieces: &[Piece]) {
         // About three glints a second across the board.
         if rng.next_f32() < dt * 3.0 {
-            let resting: Vec<Piece> = pieces.filter(|q| q.speed == 0.0).collect();
+            let resting: Vec<&Piece> = pieces.iter().filter(|q| q.speed == 0.0).collect();
             if !resting.is_empty() {
                 let q = resting[rng.range_usize(0..resting.len())];
                 let c = center(q.pos);
@@ -383,6 +419,14 @@ impl Fx {
             .map_or(1.0, |b| easing::out_back(b.1 / BORN_SECS))
     }
 
+    /// How far the gem with `id` is squashed from landing: 0 not at all, up to 1.
+    pub fn squash(&self, id: u32) -> f32 {
+        self.landed
+            .iter()
+            .find(|l| l.0 == id)
+            .map_or(0.0, |l| (std::f32::consts::PI * l.1 / LAND_SECS).sin())
+    }
+
     /// Cleared gems still shrinking away.
     pub fn vanishing(&self) -> &[Vanish] {
         &self.vanishing
@@ -394,11 +438,29 @@ impl Fx {
             let k = q.age / q.ttl;
             let fade = 1.0 - k;
             match q.shape {
-                Shape::Dot => p.circle_ex(
+                Shape::Dot => {
+                    let r = layout.len(q.size * (1.0 - 0.5 * k));
+                    let head = layout.px(q.pos);
+                    if effects.full() {
+                        // A streak behind it, as if lit up by its own speed.
+                        let tail =
+                            layout.px([q.pos[0] - q.vel[0] * 0.035, q.pos[1] - q.vel[1] * 0.035]);
+                        p.line_ex(
+                            tail,
+                            head,
+                            r * 1.2,
+                            q.color.with_alpha(fade * 0.6),
+                            FRONT,
+                            BlendMode::Additive,
+                        );
+                    }
+                    p.circle_ex(head, r, 0.0, q.color.with_alpha(fade), FRONT);
+                }
+                Shape::Flash => super::scene::soft_disc(
+                    p,
                     layout.px(q.pos),
-                    layout.len(q.size * (1.0 - 0.5 * k)),
-                    0.0,
-                    q.color.with_alpha(fade),
+                    layout.len(q.size * (0.6 + 0.6 * easing::out_cubic(k))),
+                    q.color.with_alpha(0.5 * fade * fade),
                     FRONT,
                 ),
                 Shape::Ring => p.circle_ex(

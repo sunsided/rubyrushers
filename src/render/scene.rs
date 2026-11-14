@@ -4,8 +4,11 @@ use game_toolkit::prelude::*;
 
 use super::effects::Effects;
 use super::fx::Fx;
+use super::fx::gem_color;
 use super::gem_art::{TILE, WILD_TILE};
 use super::layout::{BOARD, BOARD_SIZE, CELL, Layout};
+use super::showcase::rainbow;
+use crate::logic::score::MAX_SPEED;
 use crate::logic::{Gem, Gravity, Pos, Power, SIZE, Session};
 
 /// The window background.
@@ -37,6 +40,24 @@ pub fn background(p: &mut Painter<'_>, w: f32, h: f32) {
     );
 }
 
+/// A disc of `color` at window point `center` fading out to nothing at radius `r`.
+pub fn soft_disc(p: &mut Painter<'_>, center: [f32; 2], r: f32, color: Color, layer: Layer) {
+    /// Slices of the fan.
+    const SLICES: u32 = 32;
+    let rim = |k: u32| {
+        let a = k as f32 / SLICES as f32 * std::f32::consts::TAU;
+        [center[0] + r * a.cos(), center[1] + r * a.sin()]
+    };
+    let outer = color.with_alpha(0.0);
+    for k in 0..SLICES {
+        p.quad_colored(
+            [center, center, rim(k + 1), rim(k)],
+            [color, color, outer, outer],
+            layer,
+        );
+    }
+}
+
 /// One gem as it is to be drawn.
 #[derive(Clone, Copy, Debug)]
 struct Look {
@@ -56,6 +77,8 @@ struct Look {
     sideways: bool,
     /// Seconds a time gem adds now (0: worth nothing, drawn as a plain gem).
     bonus: f32,
+    /// How strongly the passing shine lights it up (full effects), 0 to 1.
+    shine: f32,
 }
 
 /// Draws the board, its gems, the gems being cleared and the marks; `time` drives the
@@ -71,11 +94,16 @@ pub fn board(
     marks: Marks,
     effects: Effects,
 ) {
+    let full = effects.full();
     let pad = 8.0;
+    if full {
+        frame(p, layout, session, time, pad);
+    }
+    // Opaque enough that nothing behind the board looks like a gem between them.
     p.rect_ex(
         layout.px([BOARD[0] - pad, BOARD[1] - pad]),
         [layout.len(BOARD_SIZE + 2.0 * pad); 2],
-        Color::rgba(0.0, 0.0, 0.0, 0.45),
+        Color::rgba(0.0, 0.0, 0.0, if full { 0.8 } else { 0.45 }),
         CELLS,
         BlendMode::Alpha,
     );
@@ -90,7 +118,6 @@ pub fn board(
         );
     }
 
-    let full = effects.full();
     let pulse = if full {
         0.5 + 0.5 * (time * 6.0).sin()
     } else {
@@ -125,19 +152,26 @@ pub fn board(
             wobble
         };
         let stretch = if full {
-            1.0 + (q.speed * 0.004).min(0.14)
+            1.0 + (q.speed * 0.004).min(0.14) - 0.2 * fx.squash(q.gem.id)
+        } else {
+            1.0
+        };
+        // Resting gems breathe a little, each in its own rhythm.
+        let breath = if full && q.speed == 0.0 && !q.swapping {
+            1.0 + 0.025 * (time * 2.2 + q.gem.id as f32 * 1.7).sin()
         } else {
             1.0
         };
         let look = Look {
             gem: q.gem,
             pos: q.pos,
-            scale: fx.born_scale(q.gem.id),
+            scale: fx.born_scale(q.gem.id) * breath,
             alpha: 1.0,
             spin,
             stretch,
             sideways,
             bonus,
+            shine: if full { shine(q.pos, time) } else { 0.0 },
         };
         gem(p, layout, atlas, look, time, full);
         if selected {
@@ -160,8 +194,67 @@ pub fn board(
             stretch: 1.0,
             sideways: false,
             bonus,
+            shine: 0.0,
         };
         gem(p, layout, atlas, look, time, full);
+    }
+}
+
+/// How brightly the shine sweeping diagonally across the board every few seconds lights
+/// up a gem at cell `c`, 0 to 1.
+fn shine(c: [f32; 2], time: f32) -> f32 {
+    /// Seconds between sweeps.
+    const EVERY: f32 = 6.0;
+    // From before the top-left corner (-0.2) to past the bottom-right (1.2).
+    let front = (time / EVERY).fract() * 2.5 - 0.2;
+    let at = (c[0] + c[1]) / (2.0 * (SIZE - 1) as f32);
+    (1.0 - (front - at).abs() * 7.0).max(0.0)
+}
+
+/// The glowing frame around the board, running through the gem colours; it burns
+/// brighter with the speed streak.
+fn frame(p: &mut Painter<'_>, layout: &Layout, session: &Session, time: f32, pad: f32) {
+    let heat = session.speed() as f32 / MAX_SPEED as f32;
+    let [x0, y0] = [BOARD[0] - pad, BOARD[1] - pad];
+    let [x1, y1] = [x0 + BOARD_SIZE + 2.0 * pad, y0 + BOARD_SIZE + 2.0 * pad];
+    let corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    // Colours flow around the frame: each corner a quarter further along.
+    let color = |i: usize| rainbow(time * (0.6 + 1.5 * heat) + i as f32 * 1.5);
+    let width = 4.0 + 3.0 * heat;
+    let glow = 14.0 + 22.0 * heat;
+    let glow_alpha = 0.18 + 0.27 * heat;
+    for i in 0..4 {
+        let (a, b) = (corners[i], corners[(i + 1) % 4]);
+        let (ca, cb) = (color(i), color(i + 1));
+        // Outward normal of this edge (the frame runs clockwise).
+        let len = (b[0] - a[0]).hypot(b[1] - a[1]);
+        let n = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
+        let out = |q: [f32; 2], d: f32| layout.px([q[0] + n[0] * d, q[1] + n[1] * d]);
+        let edge_glow = |c: Color| c.with_alpha(glow_alpha);
+        // Soft glow outward, then the bright band.
+        p.quad_colored(
+            [out(a, 0.0), out(b, 0.0), out(b, glow), out(a, glow)],
+            [
+                edge_glow(ca),
+                edge_glow(cb),
+                cb.with_alpha(0.0),
+                ca.with_alpha(0.0),
+            ],
+            CELLS,
+        );
+        p.quad_colored(
+            [out(a, 0.0), out(b, 0.0), out(b, width), out(a, width)],
+            [ca, cb, cb, ca],
+            CELLS,
+        );
+        // Round the glow off around the corner; the board covers the inner part.
+        soft_disc(
+            p,
+            layout.px(a),
+            layout.len(glow),
+            ca.with_alpha(glow_alpha),
+            CELLS,
+        );
     }
 }
 
@@ -212,6 +305,17 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
         Power::Wild => Some(Color::WHITE),
         Power::None => None,
     };
+    if full && s.gem.power != Power::Wild {
+        // A faint pool of the gem's own colour beneath it, kept inside its cell so the
+        // gaps between gems stay dark.
+        soft_disc(
+            p,
+            center,
+            size * 0.5,
+            gem_color(s.gem.color).with_alpha(0.14 * alpha),
+            CELLS,
+        );
+    }
     if let Some(g) = glow {
         let pulse = 0.5 + 0.5 * wave(5.0, s.gem.id as f32);
         p.circle_ex(
@@ -233,6 +337,15 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
         .rotation(s.spin)
         .color(Color::WHITE.with_alpha(alpha))
         .layer(GEMS);
+    if s.shine > 0.0 {
+        // The gem once more, added on top: it lights up in its own colour.
+        p.draw_sprite(atlas, top_left(center), dims)
+            .region(region.0, region.1)
+            .rotation(s.spin)
+            .color(Color::WHITE.with_alpha(0.55 * s.shine * alpha))
+            .blend(BlendMode::Additive)
+            .layer(GEMS);
+    }
 
     match s.gem.power {
         Power::Bomb => {
