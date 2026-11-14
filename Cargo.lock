@@ -2505,6 +2505,7 @@ dependencies = [
  "env_logger",
  "game-toolkit",
  "log",
+ "wasm-bindgen",
  "web-sys",
 ]
 

@@ -52,7 +52,7 @@ pub fn config() -> AppConfig {
         width: 1120,
         height: 840,
         asset_root: asset_root!(),
-        canvas_id: Some("rubyrushers".into()),
+        canvas_id: Some(crate::host::CANVAS.into()),
         // Nothing is loaded at runtime (the gems are rasterised, the sounds synthesised), so
         // the web build skips the asset manifest: embedded on the games site, it would be
         // looked up next to the site's page and miss.
@@ -272,7 +272,8 @@ impl App {
         }
     }
 
-    /// The title screen: a mode button or its number key starts a game; Escape quits.
+    /// The title screen: a mode button or its number key starts a game; Escape quits (only
+    /// natively: in the browser, quitting would stop the page's game for good).
     fn title_input(&mut self, ctx: &mut Context, layout: &Layout) {
         let (mx, my) = ctx.input.mouse_pos();
         let clicked = self
@@ -286,7 +287,7 @@ impl App {
         if let Some(i) = clicked.or(key) {
             self.sound.play(ctx.audio.as_mut(), Sfx::Click);
             self.start(hud::MODES[i]);
-        } else if ctx.input.key_pressed(Key::Escape) {
+        } else if cfg!(not(target_arch = "wasm32")) && ctx.input.key_pressed(Key::Escape) {
             ctx.quit();
         }
     }
@@ -445,6 +446,13 @@ impl Game for App {
     fn update(&mut self, ctx: &mut Context, dt: f32) {
         self.clock += dt;
         self.screenshots(ctx);
+
+        // Opened again on the games site: back to the title, as if freshly launched.
+        if crate::host::restart_requested() {
+            self.selected = None;
+            self.show(Screen::Title);
+        }
+
         let layout = Self::layout(ctx);
 
         if ctx.input.key_pressed(Key::F2) {

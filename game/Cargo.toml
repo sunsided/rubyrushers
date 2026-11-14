@@ -17,9 +17,20 @@ log = "0.4"
 env_logger = "0.11"
 
 # The browser: prefers-reduced-motion picks calm effects, local storage keeps the best
-# scores, the clock seeds the boards, the query string sets the start options.
+# scores, the clock seeds the boards, the query string sets the start options, and the
+# games site's restart event arrives on the canvas.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Location", "MediaQueryList", "Storage", "Window"] }
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+  "Document",
+  "Element",
+  "Event",
+  "EventTarget",
+  "Location",
+  "MediaQueryList",
+  "Storage",
+  "Window",
+] }
 
 [lints]
 workspace = true
