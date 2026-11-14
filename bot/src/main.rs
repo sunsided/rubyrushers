@@ -17,6 +17,8 @@ use rubyrushers_bot::{Board, Grid, SIZE, Tile, read, serve::serve, sim, solver};
 
 /// Seconds the board may stay unreadable before the bot calls the game over.
 const GONE_SECS: f32 = 4.0;
+/// Time between the two clicks of a swap: two frames at 60 Hz.
+const CLICK_GAP: Duration = Duration::from_millis(34);
 /// How long the cells a move changes stay off limits: swap, clear, fall.
 const BUSY: Duration = Duration::from_millis(700);
 
@@ -42,7 +44,7 @@ fn main() -> Result<()> {
     let calm = if flag("--full") { "" } else { "&calm" };
     let secs: f32 = value("--secs").map_or(Ok(600.0), |s| s.parse())?;
 
-    let screen = Screen::open(
+    let mut screen = Screen::open(
         &format!("{base}?mode={mode}{calm}"),
         1120,
         840,
@@ -55,8 +57,24 @@ fn main() -> Result<()> {
     }
     // Past the "Go!" banner.
     std::thread::sleep(Duration::from_millis(1500));
-    let grid = locate(&screen)?;
+    let grid = locate(&mut screen)?;
     println!("board at {:?}, {:.1} px per cell", grid.origin, grid.pitch);
+    // From now on only the board is captured; `view` is the grid within that crop.
+    let side = grid.pitch * SIZE as f32;
+    let corner = [
+        grid.origin[0].max(0.0).floor(),
+        grid.origin[1].max(0.0).floor(),
+    ];
+    screen.set_clip(Some([
+        corner[0],
+        corner[1],
+        side.ceil() + 1.0,
+        side.ceil() + 1.0,
+    ]));
+    let view = Grid {
+        origin: [grid.origin[0] - corner[0], grid.origin[1] - corner[1]],
+        pitch: grid.pitch,
+    };
 
     let start = Instant::now();
     let mut last: Option<Board> = None;
@@ -64,10 +82,18 @@ fn main() -> Result<()> {
     // Per cell: until when the bot's own last moves are expected to keep it changing.
     let mut busy = [[start; SIZE]; SIZE];
     let mut moves = 0;
+    // Seconds spent capturing, reading, solving and clicking; and loop rounds.
+    let mut spent = [0.0f32; 4];
+    let mut rounds = 0u32;
     while start.elapsed().as_secs_f32() < secs {
+        rounds += 1;
+        let t0 = Instant::now();
         let img = screen.screenshot()?;
-        let board = read::board(&img, &grid);
+        let t1 = Instant::now();
+        let board = read::board(&img, &view);
         let now = Instant::now();
+        spent[0] += (t1 - t0).as_secs_f32();
+        spent[1] += (now - t1).as_secs_f32();
         let seen = board
             .iter()
             .flatten()
@@ -93,11 +119,22 @@ fn main() -> Result<()> {
             }
         }
         last = Some(board);
-        let Some((a, b)) = solver::best(&trusted) else {
+        // A dimmed or covered board (game over, banners) is no place to click.
+        if seen * 4 < SIZE * SIZE * 3 {
+            continue;
+        }
+        let t2 = Instant::now();
+        let choice = solver::best(&trusted);
+        let t3 = Instant::now();
+        spent[2] += (t3 - t2).as_secs_f32();
+        let Some((a, b)) = choice else {
             continue;
         };
         screen.click(grid.center(a[0], a[1]))?;
+        // The game reads one press per frame: two clicks in one frame would be one.
+        std::thread::sleep(CLICK_GAP);
         screen.click(grid.center(b[0], b[1]))?;
+        spent[3] += t3.elapsed().as_secs_f32();
         moves += 1;
         println!("move {moves}: {a:?} <-> {b:?}");
         // Leave the cells this move will change alone until they settled.
@@ -112,7 +149,16 @@ fn main() -> Result<()> {
         }
     }
     println!("{moves} moves in {:.0} s", start.elapsed().as_secs_f32());
+    let ms = |s: f32| s * 1000.0 / rounds.max(1) as f32;
+    println!(
+        "{rounds} rounds, per round: capture {:.0} ms, read {:.1} ms, solve {:.1} ms, click {:.0} ms",
+        ms(spent[0]),
+        ms(spent[1]),
+        ms(spent[2]),
+        ms(spent[3]),
+    );
     if let Some(path) = value("--shot") {
+        screen.set_clip(None);
         std::fs::write(&path, screen.png()?)?;
         println!("final screen saved to {path}");
     }
@@ -120,7 +166,7 @@ fn main() -> Result<()> {
 }
 
 /// Finds the board, retrying while effects still cover it.
-fn locate(screen: &Screen) -> Result<Grid> {
+fn locate(screen: &mut Screen) -> Result<Grid> {
     let mut error = None;
     for _ in 0..50 {
         match Grid::locate(&screen.screenshot()?) {

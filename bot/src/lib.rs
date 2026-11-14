@@ -7,6 +7,7 @@
 
 pub mod board;
 pub mod browser;
+pub mod cdp;
 pub mod grid;
 pub mod image;
 pub mod read;

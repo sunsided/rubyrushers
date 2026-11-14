@@ -29,7 +29,7 @@ fn reads_seeded_boards() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../dist"));
     let base = serve(&dist).expect("serve dist/");
-    let screen = Screen::open(&base, 1120, 840, false).expect("open Chromium");
+    let mut screen = Screen::open(&base, 1120, 840, false).expect("open Chromium");
 
     let mut worst = 1.0f32;
     for calm in [true, false] {
