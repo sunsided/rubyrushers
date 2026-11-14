@@ -45,14 +45,14 @@ jobs:
 
       # Warnings are errors, missing docs included, matching `task check`.
       - name: Clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo test --locked
+        run: cargo test --workspace --locked
 
       # Fail on broken intra-doc links in the doc comments.
       - name: Docs
-        run: cargo doc --no-deps --locked
+        run: cargo doc --workspace --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -75,7 +75,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Clippy (wasm32)
-        run: cargo clippy --target wasm32-unknown-unknown --all-targets --locked -- -D warnings
+        run: cargo clippy -p rubyrushers --target wasm32-unknown-unknown --all-targets --locked -- -D warnings
 
   msrv:
     name: MSRV (rust-version)
@@ -100,4 +100,4 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Check
-        run: cargo check --all-targets --locked
+        run: cargo check --workspace --all-targets --locked

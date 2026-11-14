@@ -23,7 +23,7 @@ Chain reactions score a cascade multiplier, and matches in quick succession (wit
 
 ```sh
 task run                      # or: cargo run --release
-task run -- --mode tilt       # skip the title (rush, endless, tilt)
+task run -- --mode tilt       # skip the title (rush, endless, tilt; also --seed, --calm)
 task screenshot MODE=endless  # save a frame to screenshots/window.png
 task web                      # in the browser at http://localhost:8080
 ```
@@ -34,11 +34,21 @@ Full and Calm (no shake, spin, glints or pulsing; picked automatically when the 
 asks for reduced motion, or with `--calm`). F12 saves a screenshot, Esc goes back to the
 title. Linux needs `libasound2-dev libdbus-1-dev libudev-dev pkg-config`.
 
-## Roadmap
+## The bot
 
-1. The game: playable and fun. ← here
-2. A screen-capture autoplayer that sees only pixels, successor to
-   [rubyrush](https://github.com/sunsided/rubyrush).
+`bot/` is an autoplayer that sees the game only through screenshots, successor to
+[rubyrush](https://github.com/sunsided/rubyrush). It never links the game: it finds the
+board as a lattice of gem-shaped blobs, reads each gem by its hue, picks a swap with its
+own idea of the rules, and clicks, in a Chromium it drives over the DevTools protocol.
+
+```sh
+task bot                              # headless, Rush, calm effects
+task bot -- --mode tilt --visible     # watch it play
+task bot:accuracy                     # grade its reading against seeded games
+```
+
+Milestone 1 (now): it reads boards perfectly in both effect levels and plays greedily
+once the board rests. Next: lookahead, specials, and playing while gems still fall.
 
 ## License
 

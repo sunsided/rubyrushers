@@ -14,7 +14,7 @@ tasks:
   run:
     desc: Run the game (PROFILE=debug|release; extra args after --, e.g. task run -- --mode blitz)
     cmds:
-      - cargo run {{.PROFILE_FLAG}} -- {{.CLI_ARGS}}
+      - cargo run -p rubyrushers {{.PROFILE_FLAG}} -- {{.CLI_ARGS}}
 
   screenshot:
     desc: "Start MODE (default blitz), save the window after AT seconds (default 3) to OUT, then quit"
@@ -23,7 +23,7 @@ tasks:
       AT: '{{ .AT | default "3" }}'
       MODE: '{{ .MODE | default "blitz" }}'
     cmds:
-      - cargo run {{.PROFILE_FLAG}} -- --mode {{.MODE}} --screenshot {{.OUT}} --at {{.AT}}
+      - cargo run -p rubyrushers {{.PROFILE_FLAG}} -- --mode {{.MODE}} --screenshot {{.OUT}} --at {{.AT}}
 
   web:
     desc: Run in the browser with live rebuild at http://localhost:8080 (needs trunk)
@@ -41,20 +41,36 @@ tasks:
     cmds:
       - trunk build {{.PROFILE_FLAG}} {{.CLI_ARGS}}
 
+  bot:
+    desc: "Let the bot play: builds the web game and plays it headless (task bot -- --mode tilt --visible --full)"
+    preconditions: &web-preconditions-bot
+      - sh: command -v trunk
+        msg: "trunk not found — run: cargo install trunk --locked"
+    cmds:
+      - trunk build --release
+      - cargo run -p rubyrushers-bot --release -- --dist dist {{.CLI_ARGS}}
+
+  bot:accuracy:
+    desc: Grade the bot's board reading against seeded games in the web build (needs Chrome)
+    preconditions: *web-preconditions-bot
+    cmds:
+      - trunk build --release
+      - cargo test -p rubyrushers-bot --release --test accuracy -- --ignored --nocapture
+
   check:wasm:
     desc: Clippy for the browser target (wasm32-unknown-unknown)
     cmds:
-      - cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings
+      - cargo clippy -p rubyrushers --target wasm32-unknown-unknown --all-targets -- -D warnings
 
   build:
     desc: Build (PROFILE=debug|release)
     cmds:
-      - cargo build {{.PROFILE_FLAG}} {{.CLI_ARGS}}
+      - cargo build --workspace {{.PROFILE_FLAG}} {{.CLI_ARGS}}
 
   test:
     desc: Run tests (board rules, matching, cascades, scoring, modes)
     cmds:
-      - cargo test {{.CLI_ARGS}}
+      - cargo test --workspace {{.CLI_ARGS}}
 
   fmt:
     desc: Format sources
@@ -64,15 +80,15 @@ tasks:
   lint:
     desc: Clippy (warnings as errors, includes missing docs)
     cmds:
-      - cargo clippy --all-targets -- -D warnings
+      - cargo clippy --workspace --all-targets -- -D warnings
 
   check:
     desc: fmt --check, clippy -D warnings, tests and docs without broken links (run before calling it done)
     cmds:
       - cargo fmt --all --check
-      - cargo clippy --all-targets -- -D warnings
-      - cargo test
-      - RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test --workspace
+      - RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 
   lint:actions:
     desc: Lint the GitHub workflows (actionlint, zizmor)

@@ -18,6 +18,9 @@ the toolkit sources.
   gem atlas at start-up.
 - `src/sound.rs` - synthesised effects (`synth` feature), no audio files.
 - `src/app.rs` - the only glue between input, logic, view and sound.
+- `bot/` - the autoplayer (workspace member). It must never depend on the game crate
+  outside `[dev-dependencies]`: only its accuracy harness (`bot/tests/accuracy.rs`) may
+  look at the game's state, to grade what the bot read from pixels.
 
 ## Conventions
 
@@ -26,6 +29,7 @@ the toolkit sources.
 - Every rule change gets a test in `logic/`. `task check` (fmt, clippy -D warnings, tests,
   docs) must pass.
 - Own names and look: no other game's names in identifiers, text or assets.
-- Keep gems distinct by silhouette and colour, and the board geometry stable: phase 2 is a
-  bot that reads only screenshots. Do not add hooks that expose game state to it.
+- Keep gems distinct by silhouette and colour: the bot reads only screenshots. Do not add
+  hooks that expose game state to it. The web build takes the CLI flags as query
+  parameters (`?mode=endless&seed=3&calm`); that is how the harness deals known boards.
 - Keep code wasm-safe (no `std::time::Instant`; `SystemTime` only behind `cfg`).

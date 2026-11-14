@@ -1,6 +1,7 @@
 //! Launcher. Everything lives in the library crate; see [`rubyrushers::app`].
 //!
-//! Command line (native):
+//! Command line (native), or the same as URL query parameters on the web
+//! (`?mode=tilt&seed=7&calm`):
 //!
 //! - `--mode rush|endless|tilt`: skip the title and start that mode.
 //! - `--seed <n>`: deal the first game from this seed.
@@ -15,7 +16,7 @@ use rubyrushers::logic::Mode;
 /// Parses the command line, sets up logging (native only) and hands the game to the
 /// toolkit's run loop.
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args = arguments();
     let value = |flag: &str| {
         args.iter()
             .position(|a| a == flag)
@@ -50,4 +51,28 @@ fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     run::<App>(config())
+}
+
+/// The command line natively; on the web, the page's query string turned into the same
+/// flags (`?mode=tilt&calm` becomes `--mode tilt --calm`).
+fn arguments() -> Vec<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::env::args().skip(1).collect()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let query = web_sys::window()
+            .and_then(|w| w.location().search().ok())
+            .unwrap_or_default();
+        query
+            .trim_start_matches('?')
+            .split('&')
+            .filter(|kv| !kv.is_empty())
+            .flat_map(|kv| match kv.split_once('=') {
+                Some((k, v)) => vec![format!("--{k}"), v.to_owned()],
+                None => vec![format!("--{kv}")],
+            })
+            .collect()
+    }
 }

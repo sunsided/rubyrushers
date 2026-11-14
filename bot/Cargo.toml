@@ -1,0 +1,23 @@
+[package]
+name = "rubyrushers-bot"
+version = "0.1.0"
+description = "Plays RubyRushers from screenshots alone: finds the board, reads the gems, picks a move, clicks."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow = "1"
+headless_chrome = "1.0.22"
+png = "0.18"
+
+# Only the accuracy harness looks at the game's own state, to grade what the bot saw.
+# The bot itself never links the game.
+[dev-dependencies]
+rubyrushers = { path = ".." }
+
+[lints]
+workspace = true

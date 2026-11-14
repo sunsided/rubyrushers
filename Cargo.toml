@@ -1,12 +1,36 @@
-[package]
-name = "rubyrushers"
-version = "0.1.0"
-description = "A fast match-three gem game on game-toolkit: a 60-second rush and an endless mode."
+[workspace]
+members = ["bot"]
+resolver = "3"
+
+[workspace.package]
 edition = "2024"
 rust-version = "1.95"
 license = "EUPL-1.2"
 authors = ["Markus Mayer"]
 repository = "https://github.com/sunsided/rubyrushers"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+missing_docs_in_private_items = "warn"
+dbg_macro = "warn"
+todo = "warn"
+manual_let_else = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+
+[package]
+name = "rubyrushers"
+version = "0.1.0"
+description = "A fast match-three gem game on game-toolkit: a 60-second rush and an endless mode."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 publish = false
 
 [dependencies]
@@ -17,22 +41,12 @@ log = "0.4"
 env_logger = "0.11"
 
 # The browser: prefers-reduced-motion picks calm effects, local storage keeps the best
-# scores, the clock seeds the boards.
+# scores, the clock seeds the boards, the query string sets the start options.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["MediaQueryList", "Storage", "Window"] }
+web-sys = { version = "0.3", features = ["Location", "MediaQueryList", "Storage", "Window"] }
 
-[lints.rust]
-unsafe_code = "deny"
-missing_docs = "warn"
-rust_2018_idioms = { level = "warn", priority = -1 }
-
-[lints.clippy]
-missing_docs_in_private_items = "warn"
-dbg_macro = "warn"
-todo = "warn"
-manual_let_else = "warn"
-semicolon_if_nothing_returned = "warn"
-uninlined_format_args = "warn"
+[lints]
+workspace = true
 
 # Light optimization for our own code, full for dependencies: playable debug builds that
 # still compile fast.

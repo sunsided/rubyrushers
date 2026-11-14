@@ -105,8 +105,9 @@ pub struct App {
 impl App {
     /// Starts a new game of `mode`.
     fn start(&mut self, mode: Mode) {
-        self.seed = self.seed.wrapping_add(0x9E37_79B9);
+        // `--seed` deals exactly the first game; later ones step on from it.
         self.session = Session::new(mode, self.seed);
+        self.seed = self.seed.wrapping_add(0x9E37_79B9);
         self.fx.clear();
         self.fx.banner("Go!");
         self.selected = None;
