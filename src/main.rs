@@ -2,8 +2,9 @@
 //!
 //! Command line (native):
 //!
-//! - `--mode rush|endless`: skip the title and start that mode.
+//! - `--mode rush|endless|tilt`: skip the title and start that mode.
 //! - `--seed <n>`: deal the first game from this seed.
+//! - `--calm`: start with calm effects (no shake, spin or glints; F2 toggles).
 //! - `--screenshot <file.png>`: save what the window shows after `--at <secs>` seconds
 //!   (default 3), then quit.
 
@@ -27,7 +28,8 @@ fn main() -> Result<()> {
     let mode = value("--mode").map(|m| match m.as_str() {
         "rush" => Mode::rush(),
         "endless" => Mode::Endless,
-        _ => fail("--mode needs rush or endless"),
+        "tilt" => Mode::tilt(),
+        _ => fail("--mode needs rush, endless or tilt"),
     });
     let seed = value("--seed").map(|s| s.parse().unwrap_or_else(|_| fail("--seed needs a number")));
     let at = value("--at").map_or(3.0, |s| {
@@ -43,6 +45,7 @@ fn main() -> Result<()> {
         mode,
         seed,
         screenshot,
+        calm: args.iter().any(|a| a == "--calm"),
     });
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();

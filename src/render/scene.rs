@@ -2,10 +2,11 @@
 
 use game_toolkit::prelude::*;
 
-use super::board_view::{BoardView, Sprite};
+use super::effects::Effects;
+use super::fx::Fx;
 use super::gem_art::{TILE, WILD_TILE};
 use super::layout::{BOARD, BOARD_SIZE, CELL, Layout};
-use crate::logic::{Pos, Power};
+use crate::logic::{Gem, Gravity, Pos, Power, SIZE, Session};
 
 /// The window background.
 const BG: Layer = Layer(0);
@@ -36,14 +37,37 @@ pub fn background(p: &mut Painter<'_>, w: f32, h: f32) {
     );
 }
 
-/// Draws the board, its gems and the marks; `time` drives the pulsing.
+/// One gem as it is to be drawn.
+#[derive(Clone, Copy, Debug)]
+struct Look {
+    /// The gem.
+    gem: Gem,
+    /// Position in cells.
+    pos: [f32; 2],
+    /// Size factor.
+    scale: f32,
+    /// Opacity.
+    alpha: f32,
+    /// Rotation in radians.
+    spin: f32,
+    /// Stretch factor along the fall (falling gems, full effects).
+    stretch: f32,
+    /// Gems fall sideways: stretch horizontally.
+    sideways: bool,
+}
+
+/// Draws the board, its gems, the gems being cleared and the marks; `time` drives the
+/// pulsing.
+#[allow(clippy::too_many_arguments, reason = "plain inputs of one draw call")]
 pub fn board(
     p: &mut Painter<'_>,
     layout: &Layout,
-    view: &BoardView,
+    session: &Session,
+    fx: &Fx,
     atlas: TextureId,
     time: f32,
     marks: Marks,
+    effects: Effects,
 ) {
     let pad = 8.0;
     p.rect_ex(
@@ -64,7 +88,12 @@ pub fn board(
         );
     }
 
-    let pulse = 0.5 + 0.5 * (time * 6.0).sin();
+    let full = effects.full();
+    let pulse = if full {
+        0.5 + 0.5 * (time * 6.0).sin()
+    } else {
+        0.6
+    };
     if let Some((a, b)) = marks.hint {
         for c in [a, b] {
             p.circle_ex(
@@ -77,8 +106,57 @@ pub fn board(
         }
     }
 
-    for s in view.sprites() {
-        gem(p, layout, atlas, s, time, marks.selected);
+    let sideways = matches!(session.gravity(), Gravity::Left | Gravity::Right);
+    for q in session.pieces() {
+        let selected = marks
+            .selected
+            .is_some_and(|c| q.pos == [c.x as f32, c.y as f32]);
+        let wobble = if full && selected {
+            0.12 * (time * 9.0).sin()
+        } else {
+            0.0
+        };
+        let spin = if full && q.gem.power == Power::Wild {
+            time * 1.8
+        } else {
+            wobble
+        };
+        let stretch = if full {
+            1.0 + (q.speed * 0.004).min(0.14)
+        } else {
+            1.0
+        };
+        let look = Look {
+            gem: q.gem,
+            pos: q.pos,
+            scale: fx.born_scale(q.gem.id),
+            alpha: 1.0,
+            spin,
+            stretch,
+            sideways,
+        };
+        gem(p, layout, atlas, look, time, full);
+        if selected {
+            p.circle_ex(
+                cell_px(layout, q.pos),
+                layout.cell() * 0.5,
+                layout.len(3.0),
+                Color::rgba(1.0, 1.0, 1.0, 0.9),
+                MARKS,
+            );
+        }
+    }
+    for v in fx.vanishing() {
+        let look = Look {
+            gem: v.gem,
+            pos: v.pos,
+            scale: v.scale(),
+            alpha: v.alpha(),
+            spin: if full { v.spin() } else { 0.0 },
+            stretch: 1.0,
+            sideways: false,
+        };
+        gem(p, layout, atlas, look, time, full);
     }
 }
 
@@ -87,41 +165,40 @@ fn cell_px(layout: &Layout, c: [f32; 2]) -> [f32; 2] {
     layout.px(Layout::cell_center(c))
 }
 
-/// Draws one gem with its shadow and power marks.
-fn gem(
-    p: &mut Painter<'_>,
-    layout: &Layout,
-    atlas: TextureId,
-    s: &Sprite,
-    time: f32,
-    selected: Option<Pos>,
-) {
-    // New gems fade in as they drop onto the board.
-    let alpha = s.alpha * (s.pos[1] + 1.0).clamp(0.0, 1.0);
-    if alpha <= 0.0 {
+/// Draws one gem with its shadow and power marks; `full` lets the marks pulse.
+fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f32, full: bool) {
+    // New gems fade in as they come onto the board over its edge.
+    let last = (SIZE - 1) as f32;
+    let outside = [-s.pos[0], s.pos[0] - last, -s.pos[1], s.pos[1] - last]
+        .into_iter()
+        .fold(0.0f32, f32::max);
+    let alpha = s.alpha * (1.0 - outside).clamp(0.0, 1.0);
+    if alpha <= 0.0 || s.scale <= 0.0 {
         return;
     }
-    let is_selected = selected.is_some_and(|c| s.pos == [c.x as f32, c.y as f32]);
     let center = cell_px(layout, s.pos);
-    let bob = if is_selected {
-        1.0 + 0.06 * (time * 8.0).sin()
+    let size = layout.cell() * 0.94 * s.scale;
+    let (across, along) = (size / s.stretch.sqrt(), size * s.stretch);
+    let dims = if s.sideways {
+        [along, across]
     } else {
-        1.0
+        [across, along]
     };
-    let size = layout.cell() * 0.94 * s.scale * bob;
     let tile = if s.gem.power == Power::Wild {
         WILD_TILE
     } else {
         u32::from(s.gem.color)
     };
-    let rotation = if s.gem.power == Power::Wild {
-        time * 1.8
-    } else {
-        0.0
-    };
     let region = ([(tile * TILE) as f32, 0.0], [TILE as f32; 2]);
-    let top_left = |c: [f32; 2]| [c[0] - size / 2.0, c[1] - size / 2.0];
+    let top_left = |c: [f32; 2]| [c[0] - dims[0] / 2.0, c[1] - dims[1] / 2.0];
     let off = layout.len(4.0);
+    let wave = |speed: f32, phase: f32| {
+        if full {
+            (time * speed + phase).sin()
+        } else {
+            0.0
+        }
+    };
 
     // Glows under special gems.
     let glow = match s.gem.power {
@@ -131,7 +208,7 @@ fn gem(
         Power::None => None,
     };
     if let Some(g) = glow {
-        let pulse = 0.5 + 0.5 * (time * 5.0 + s.gem.id as f32).sin();
+        let pulse = 0.5 + 0.5 * wave(5.0, s.gem.id as f32);
         p.circle_ex(
             center,
             size * (0.5 + 0.06 * pulse),
@@ -141,43 +218,35 @@ fn gem(
         );
     }
 
-    p.draw_sprite(
-        atlas,
-        top_left([center[0] + off, center[1] + off]),
-        [size; 2],
-    )
-    .region(region.0, region.1)
-    .rotation(rotation)
-    .color(Color::BLACK.with_alpha(0.35 * alpha))
-    .layer(GEMS);
-    p.draw_sprite(atlas, top_left(center), [size; 2])
+    p.draw_sprite(atlas, top_left([center[0] + off, center[1] + off]), dims)
         .region(region.0, region.1)
-        .rotation(rotation)
+        .rotation(s.spin)
+        .color(Color::BLACK.with_alpha(0.35 * alpha))
+        .layer(GEMS);
+    p.draw_sprite(atlas, top_left(center), dims)
+        .region(region.0, region.1)
+        .rotation(s.spin)
         .color(Color::WHITE.with_alpha(alpha))
         .layer(GEMS);
 
     match s.gem.power {
         Power::Bomb => {
-            let r = size * (0.36 + 0.03 * (time * 7.0).sin());
-            p.circle_ex(
-                center,
-                r,
-                layout.len(3.0),
-                Color::rgba(1.0, 0.9, 0.5, alpha * 0.9),
-                MARKS,
-            );
+            let r = size * (0.36 + 0.03 * wave(7.0, 0.0));
+            let c = Color::rgba(1.0, 0.9, 0.5, alpha * 0.9);
+            p.circle_ex(center, r, layout.len(3.0), c, MARKS);
         }
         Power::Cross => {
             let l = size * 0.32;
             let w = layout.len(4.0);
             let c = Color::rgba(1.0, 1.0, 1.0, alpha * 0.85);
+            let add = BlendMode::Additive;
             p.line_ex(
                 [center[0] - l, center[1]],
                 [center[0] + l, center[1]],
                 w,
                 c,
                 MARKS,
-                BlendMode::Additive,
+                add,
             );
             p.line_ex(
                 [center[0], center[1] - l],
@@ -185,32 +254,18 @@ fn gem(
                 w,
                 c,
                 MARKS,
-                BlendMode::Additive,
+                add,
             );
         }
         Power::Wild | Power::None => {}
     }
     if s.gem.time_bonus {
-        p.circle_ex(
-            center,
-            size * 0.47,
-            layout.len(3.0),
-            Color::rgba(0.4, 1.0, 0.9, alpha * (0.6 + 0.4 * (time * 4.0).sin())),
-            MARKS,
-        );
+        let c = Color::rgba(0.4, 1.0, 0.9, alpha * (0.7 + 0.3 * wave(4.0, 0.0)));
+        p.circle_ex(center, size * 0.47, layout.len(3.0), c, MARKS);
         p.draw_text([center[0], center[1] + size * 0.12], "+5")
             .size(size * 0.3)
             .align(Align::Center)
             .color(Color::WHITE.with_alpha(alpha))
             .layer(MARKS);
-    }
-    if is_selected {
-        p.circle_ex(
-            center,
-            layout.cell() * 0.5,
-            layout.len(3.0),
-            Color::rgba(1.0, 1.0, 1.0, 0.9),
-            MARKS,
-        );
     }
 }

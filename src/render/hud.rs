@@ -2,9 +2,11 @@
 
 use game_toolkit::prelude::*;
 
-use super::layout::{BOARD, DESIGN_H, DESIGN_W, Layout};
+use super::effects::Effects;
+use super::layout::{BOARD, BOARD_SIZE, DESIGN_H, DESIGN_W, Layout};
 use crate::logic::mode::RUSH_SECS;
-use crate::logic::{Mode, Session};
+use crate::logic::mode::WARN_SECS;
+use crate::logic::{Gravity, Mode, Session};
 
 /// Layer of panels and their text, above everything on the board.
 const HUD: Layer = Layer(6);
@@ -14,12 +16,12 @@ const ACCENT: Color = Color::rgb(1.0, 0.45, 0.5);
 const MUTED: Color = Color::rgb(0.65, 0.68, 0.85);
 
 /// The modes offered on the title screen, in button order.
-pub const MODES: [Mode; 2] = [Mode::rush(), Mode::Endless];
+pub const MODES: [Mode; 3] = [Mode::rush(), Mode::Endless, Mode::tilt()];
 
 /// Design-space rectangle (top-left, size) of title button `i`.
 pub fn button_rect(i: usize) -> ([f32; 2], [f32; 2]) {
     let size = [300.0, 84.0];
-    ([(DESIGN_W - size[0]) / 2.0, 360.0 + i as f32 * 110.0], size)
+    ([(DESIGN_W - size[0]) / 2.0, 340.0 + i as f32 * 100.0], size)
 }
 
 /// Which title button contains design point `d`.
@@ -55,7 +57,9 @@ pub fn panel(
     shown_score: u64,
     best: u64,
     time: f32,
+    effects: Effects,
 ) {
+    gravity(p, l, session);
     let x = 40.0;
     text(p, l, [x, 40.0], "RUBY", 44.0, ACCENT, Align::Left);
     text(p, l, [x, 84.0], "RUSHERS", 44.0, Color::WHITE, Align::Left);
@@ -89,13 +93,18 @@ pub fn panel(
         Align::Left,
     );
 
-    if let Mode::Rush { remaining } = *session.mode() {
+    if let Some(remaining) = session.mode().remaining() {
         text(p, l, [x, 360.0], "TIME", 18.0, MUTED, Align::Left);
         let w = BOARD[0] - x - 40.0;
         let frac = (remaining / RUSH_SECS).clamp(0.0, 1.0);
         let urgent = remaining < 10.0;
+        let flash = if effects.full() {
+            0.5 + 0.5 * (time * 10.0).sin()
+        } else {
+            0.0
+        };
         let color = if urgent {
-            Color::rgb(1.0, 0.3, 0.25).lerp(Color::WHITE, 0.3 * (0.5 + 0.5 * (time * 10.0).sin()))
+            Color::rgb(1.0, 0.3, 0.25).lerp(Color::WHITE, 0.3 * flash)
         } else {
             Color::rgb(0.4, 1.0, 0.85)
         };
@@ -137,6 +146,15 @@ pub fn panel(
     text(
         p,
         l,
+        [x, DESIGN_H - 84.0],
+        &format!("F2 effects: {}", effects.name()),
+        14.0,
+        MUTED,
+        Align::Left,
+    );
+    text(
+        p,
+        l,
         [x, DESIGN_H - 60.0],
         "Swap neighbours: click both",
         14.0,
@@ -171,7 +189,7 @@ pub fn title(
     l: &Layout,
     w: f32,
     h: f32,
-    bests: &[u64; 2],
+    bests: &[u64; 3],
     hover: Option<usize>,
     time: f32,
 ) {
@@ -199,6 +217,7 @@ pub fn title(
     let blurbs = [
         "60 seconds, time gems add more",
         "No clock, ends when you're stuck",
+        "60 seconds, gravity turns every 15",
     ];
     for (i, mode) in MODES.iter().enumerate() {
         let (pos, size) = button_rect(i);
@@ -254,7 +273,7 @@ pub fn game_over(
     dim(p, w, h, 0.85);
     let cx = DESIGN_W / 2.0;
     let heading = match session.mode() {
-        Mode::Rush { .. } => "Time's up!",
+        Mode::Rush { .. } | Mode::Tilt { .. } => "Time's up!",
         Mode::Endless => "No moves left",
     };
     text(p, l, [cx, 170.0], heading, 56.0, ACCENT, Align::Center);
@@ -302,4 +321,70 @@ pub fn game_over(
         MUTED,
         Align::Center,
     );
+}
+
+/// A filled arrow head at design point `c`, pointing along `dir`, `size` long.
+fn arrow(p: &mut Painter<'_>, l: &Layout, c: [f32; 2], dir: [f32; 2], size: f32, color: Color) {
+    let (fx, fy) = (dir[0] * size / 2.0, dir[1] * size / 2.0);
+    // Perpendicular half-width.
+    let (sx, sy) = (-dir[1] * size / 2.0, dir[0] * size / 2.0);
+    let pts = [
+        l.px([c[0] + fx, c[1] + fy]),
+        l.px([c[0] - fx + sx, c[1] - fy + sy]),
+        l.px([c[0] - fx * 0.4, c[1] - fy * 0.4]),
+        l.px([c[0] - fx - sx, c[1] - fy - sy]),
+    ];
+    p.polygon_ex(&pts, color, HUD, BlendMode::Alpha);
+}
+
+/// The gravity readout in the panel (tilt mode): which way gems fall and when it turns.
+pub fn gravity(p: &mut Painter<'_>, l: &Layout, session: &Session) {
+    let Some(turn_in) = session.mode().turn_in() else {
+        return;
+    };
+    let x = 40.0;
+    text(p, l, [x, 520.0], "GRAVITY", 18.0, MUTED, Align::Left);
+    arrow(
+        p,
+        l,
+        [x + 22.0, 570.0],
+        session.gravity().dir(),
+        36.0,
+        Color::WHITE,
+    );
+    let next = if turn_in > 0.0 {
+        format!("turns in {:.0} s", turn_in.ceil())
+    } else {
+        "turning...".to_owned()
+    };
+    text(p, l, [x + 56.0, 556.0], &next, 18.0, MUTED, Align::Left);
+}
+
+/// Big arrows over the board pointing where gravity turns next, shown shortly before.
+pub fn tilt_warning(
+    p: &mut Painter<'_>,
+    l: &Layout,
+    session: &Session,
+    time: f32,
+    effects: Effects,
+) {
+    let Some(turn_in) = session.mode().turn_in() else {
+        return;
+    };
+    if turn_in > WARN_SECS || session.is_over() {
+        return;
+    }
+    let next: Gravity = session.gravity().turned();
+    let blink = if effects.full() {
+        0.5 + 0.5 * (time * 12.0).sin()
+    } else {
+        1.0
+    };
+    let color = Color::rgba(1.0, 0.85, 0.3, 0.25 + 0.35 * blink);
+    let mid = [BOARD[0] + BOARD_SIZE / 2.0, BOARD[1] + BOARD_SIZE / 2.0];
+    let d = next.dir();
+    for k in [-1.0, 0.0, 1.0] {
+        let c = [mid[0] + d[0] * k * 120.0, mid[1] + d[1] * k * 120.0];
+        arrow(p, l, c, d, 110.0, color);
+    }
 }

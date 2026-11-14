@@ -2385,6 +2385,7 @@ dependencies = [
  "env_logger",
  "game-toolkit",
  "log",
+ "web-sys",
 ]
 
 [[package]]

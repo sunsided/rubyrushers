@@ -5,6 +5,8 @@ Swap neighbouring gems to line up three or more; bigger lines leave special gems
 
 - **Rush**: 60 seconds on the clock, time gems add more. Stuck boards are reshuffled.
 - **Endless**: no clock; the game ends when no move is left.
+- **Tilt**: like Rush, but gravity turns a quarter clockwise every 15 seconds (down, left,
+  up, right). Arrows warn just before; the board settles, then gems fall the new way.
 
 Special gems:
 
@@ -20,12 +22,16 @@ Chain reactions score a cascade multiplier.
 
 ```sh
 task run                      # or: cargo run --release
-task run -- --mode rush       # skip the title
+task run -- --mode tilt       # skip the title (rush, endless, tilt)
 task screenshot MODE=endless  # save a frame to screenshots/window.png
+task web                      # in the browser at http://localhost:8080
 ```
 
-Click a gem and then a neighbour, or drag a gem onto a neighbour. F12 saves a screenshot,
-Esc goes back to the title. Linux needs `libasound2-dev libdbus-1-dev libudev-dev pkg-config`.
+Click a gem and then a neighbour, or drag a gem onto a neighbour. Keep going while
+cascades still fall: any gem at rest can be swapped. F2 switches the effects between
+Full and Calm (no shake, spin, glints or pulsing; picked automatically when the browser
+asks for reduced motion, or with `--calm`). F12 saves a screenshot, Esc goes back to the
+title. Linux needs `libasound2-dev libdbus-1-dev libudev-dev pkg-config`.
 
 ## Roadmap
 

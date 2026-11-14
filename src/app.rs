@@ -1,13 +1,14 @@
-//! The game-toolkit glue: screens, input, and handing the logic's steps to the view.
+//! The game-toolkit glue: screens, input, and turning the logic's events into effects
+//! and sound.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use game_toolkit::prelude::*;
 
-use crate::logic::{Mode, Pos, Session, Step};
+use crate::logic::{Event, Mode, Pos, Session};
 use crate::render::scene::{self, Marks};
-use crate::render::{BoardView, Cue, Fx, Layout, gem_art, hud};
+use crate::render::{Effects, Fx, Layout, gem_art, hud};
 use crate::sound::{Sfx, Sound};
 
 /// Seconds without input before a move is suggested.
@@ -24,6 +25,8 @@ pub struct Options {
     pub seed: Option<u64>,
     /// Save a screenshot to this path after this many seconds, then quit.
     pub screenshot: Option<(PathBuf, f32)>,
+    /// Start with calm effects.
+    pub calm: bool,
 }
 
 /// The options set before [`run`].
@@ -68,12 +71,12 @@ pub struct App {
     screen: Screen,
     /// The game being played (or shown behind the title).
     session: Session,
-    /// The animated board.
-    view: BoardView,
     /// The gem atlas.
     atlas: TextureId,
-    /// Sparks, popups, shake.
+    /// Sparks, popups, shake, vanishing gems.
     fx: Fx,
+    /// How much moves and sparkles.
+    effects: Effects,
     /// Sound effects.
     sound: Sound,
     /// The gem the player picked.
@@ -86,10 +89,10 @@ pub struct App {
     clock: f32,
     /// Score shown in the panel, counting up towards `shown_target`.
     shown_score: f32,
-    /// Score of the steps played back so far.
+    /// Score so far, as the events arrived.
     shown_target: u64,
     /// Best score per mode (title button order).
-    bests: [u64; 2],
+    bests: [u64; 3],
     /// The seed of the next game.
     seed: u64,
     /// The screenshot asked for on the command line, until taken.
@@ -103,7 +106,6 @@ impl App {
     fn start(&mut self, mode: Mode) {
         self.seed = self.seed.wrapping_add(0x9E37_79B9);
         self.session = Session::new(mode, self.seed);
-        self.view = BoardView::new(self.session.board());
         self.fx.clear();
         self.fx.banner("Go!");
         self.selected = None;
@@ -122,13 +124,11 @@ impl App {
             .unwrap_or(0)
     }
 
-    /// Tries to swap the gems at `a` and `b`.
+    /// Tries to swap the gems at `a` and `b`; if they cannot move yet, `b` becomes the
+    /// picked gem instead.
     fn swap(&mut self, a: Pos, b: Pos) {
-        let steps: Vec<Step> = self.session.swap(a, b);
-        if !steps.is_empty() {
-            self.view.push(steps);
-        }
-        self.selected = None;
+        let swapped = self.session.swap(a, b);
+        self.selected = (!swapped && self.session.can_move(b)).then_some(b);
         self.press = None;
         self.idle = 0.0;
     }
@@ -144,48 +144,60 @@ impl App {
                     let s = self.selected.unwrap_or(c);
                     self.swap(s, c);
                 }
-                Some(c) => {
+                Some(c) if self.session.can_move(c) => {
                     self.selected = (self.selected != Some(c)).then_some(c);
                     self.press = Some((mouse, c));
                 }
+                Some(_) => {}
                 None => self.selected = None,
             }
         }
+        // A flick can start and end within one frame, so measure before letting go.
         if let Some((start, c)) = self.press {
-            if !ctx.input.mouse_held(MouseButton::Left) {
-                self.press = None;
-            } else {
-                let d = [mouse[0] - start[0], mouse[1] - start[1]];
-                if d[0].abs().max(d[1].abs()) > SWIPE_CELLS * layout.cell() {
-                    let to = if d[0].abs() > d[1].abs() {
-                        Pos::new(c.x + d[0].signum() as i32, c.y)
-                    } else {
-                        Pos::new(c.x, c.y + d[1].signum() as i32)
-                    };
-                    if to.on_board() {
-                        self.swap(c, to);
-                    } else {
-                        self.press = None;
-                    }
+            let d = [mouse[0] - start[0], mouse[1] - start[1]];
+            if d[0].abs().max(d[1].abs()) > SWIPE_CELLS * layout.cell() {
+                let to = if d[0].abs() > d[1].abs() {
+                    Pos::new(c.x + d[0].signum() as i32, c.y)
+                } else {
+                    Pos::new(c.x, c.y + d[1].signum() as i32)
+                };
+                if to.on_board() {
+                    self.swap(c, to);
                 }
+                self.press = None;
+            } else if !ctx.input.mouse_held(MouseButton::Left) {
+                self.press = None;
             }
         }
     }
 
-    /// Effects and sounds for what the view just played.
-    fn react(&mut self, ctx: &mut Context, cues: Vec<Cue>) {
-        for cue in cues {
-            let sfx = match &cue {
-                Cue::Swapped => Some(Sfx::Swap),
-                Cue::Rejected => Some(Sfx::Reject),
-                Cue::Landed => Some(Sfx::Land),
-                Cue::Reshuffled => {
+    /// Effects and sounds for what just happened on the board.
+    fn react(&mut self, ctx: &mut Context, events: Vec<Event>) {
+        for event in events {
+            let sfx = match &event {
+                Event::Swapped => Some(Sfx::Swap),
+                Event::Rejected => Some(Sfx::Reject),
+                Event::Landed => Some(Sfx::Land),
+                Event::Reshuffled => {
                     self.fx.banner("Reshuffle");
                     None
                 }
-                Cue::Cleared(clear) => {
+                Event::Tilted(_) => {
+                    self.fx.banner("TILT!");
+                    self.fx.jolt();
+                    Some(Sfx::Blast)
+                }
+                Event::Over => {
+                    let i = self.mode_index();
+                    let new_best = self.session.score() > self.bests[i];
+                    self.bests[i] = self.bests[i].max(self.session.score());
+                    self.screen = Screen::Over { new_best };
+                    self.selected = None;
+                    Some(Sfx::Over)
+                }
+                Event::Cleared(clear) => {
                     self.shown_target += clear.points;
-                    self.fx.cleared(clear, &mut ctx.rng);
+                    self.fx.cleared(clear, &mut ctx.rng, self.effects);
                     if !clear.blasts.is_empty() {
                         self.sound.play(ctx.audio.as_mut(), Sfx::Blast);
                     }
@@ -253,10 +265,14 @@ impl Game for App {
         let session = Session::new(Mode::Endless, seed);
         let mut app = Self {
             screen: Screen::Title,
-            view: BoardView::new(session.board()),
             session,
             atlas,
             fx: Fx::default(),
+            effects: if options.calm || prefers_reduced_motion() {
+                Effects::Calm
+            } else {
+                Effects::Full
+            },
             sound: Sound::new(),
             selected: None,
             press: None,
@@ -264,7 +280,7 @@ impl Game for App {
             clock: 0.0,
             shown_score: 0.0,
             shown_target: 0,
-            bests: [0; 2],
+            bests: [0; 3],
             seed,
             screenshot: options.screenshot,
             quit_next: false,
@@ -280,9 +296,11 @@ impl Game for App {
         self.clock += dt;
         self.screenshots(ctx);
         let layout = Self::layout(ctx);
-        let cues = self.view.update(dt);
-        self.react(ctx, cues);
-        self.fx.update(dt);
+        if ctx.input.key_pressed(Key::F2) {
+            self.effects = self.effects.toggled();
+        }
+        self.fx
+            .update(dt, &mut ctx.rng, self.effects, self.session.pieces());
         let target = self.shown_target as f32;
         self.shown_score += (target - self.shown_score) * (dt * 8.0).min(1.0);
         if (target - self.shown_score).abs() < 1.0 {
@@ -301,6 +319,8 @@ impl Game for App {
                     Some(0)
                 } else if ctx.input.key_pressed(Key::Digit2) {
                     Some(1)
+                } else if ctx.input.key_pressed(Key::Digit3) {
+                    Some(2)
                 } else {
                     None
                 };
@@ -316,19 +336,15 @@ impl Game for App {
                     self.screen = Screen::Title;
                     return;
                 }
-                self.session.tick(dt);
-                if self.session.is_over() {
+                self.board_input(ctx, &layout);
+                if self.selected.is_some_and(|c| !self.session.can_move(c)) {
                     self.selected = None;
-                    if !self.view.busy() {
-                        let i = self.mode_index();
-                        let new_best = self.session.score() > self.bests[i];
-                        self.bests[i] = self.bests[i].max(self.session.score());
-                        self.screen = Screen::Over { new_best };
-                        self.sound.play(ctx.audio.as_mut(), Sfx::Over);
-                    }
-                } else if !self.view.busy() {
+                }
+                self.session.update(dt);
+                let events = self.session.drain_events();
+                self.react(ctx, events);
+                if self.session.is_still() {
                     self.idle += dt;
-                    self.board_input(ctx, &layout);
                 }
             }
             Screen::Over { .. } => {
@@ -347,13 +363,13 @@ impl Game for App {
     fn render(&mut self, ctx: &mut Context, frame: &mut Frame) {
         let (w, h) = ctx.gfx.size();
         let (w, h) = (w as f32, h as f32);
-        let shake = self.fx.shake(&mut ctx.rng);
+        let shake = self.fx.shake(&mut ctx.rng, self.effects);
         let base = Layout::fit(w, h);
         let layout = base.shifted(shake);
         let playing = self.screen == Screen::Playing;
         let marks = Marks {
             selected: if playing { self.selected } else { None },
-            hint: (playing && self.idle > HINT_AFTER && !self.view.busy())
+            hint: (playing && self.idle > HINT_AFTER)
                 .then(|| self.session.hint())
                 .flatten(),
         };
@@ -364,8 +380,11 @@ impl Game for App {
 
         let mut p = frame.painter(&mut ctx.gfx);
         scene::background(&mut p, w, h);
-        scene::board(&mut p, &layout, &self.view, self.atlas, self.clock, marks);
-        self.fx.draw(&mut p, &layout);
+        let (session, fx, effects) = (&self.session, &self.fx, self.effects);
+        scene::board(
+            &mut p, &layout, session, fx, self.atlas, self.clock, marks, effects,
+        );
+        self.fx.draw(&mut p, &layout, self.effects);
         match self.screen {
             Screen::Title => {
                 hud::title(
@@ -387,7 +406,9 @@ impl Game for App {
                     self.shown_score as u64,
                     best,
                     self.clock,
+                    self.effects,
                 );
+                hud::tilt_warning(&mut p, &base, &self.session, self.clock, self.effects);
             }
             Screen::Over { new_best } => {
                 let best = self.bests[self.mode_index()];
@@ -398,10 +419,29 @@ impl Game for App {
                     self.shown_score as u64,
                     best,
                     self.clock,
+                    self.effects,
                 );
                 hud::game_over(&mut p, &base, w, h, &self.session, best, new_best);
             }
         }
+    }
+}
+
+/// Whether the browser asks for reduced motion (`prefers-reduced-motion: reduce`).
+fn prefers_reduced_motion() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| {
+                w.match_media("(prefers-reduced-motion: reduce)")
+                    .ok()
+                    .flatten()
+            })
+            .is_some_and(|m| m.matches())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
     }
 }
 

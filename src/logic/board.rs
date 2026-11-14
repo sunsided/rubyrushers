@@ -101,50 +101,6 @@ impl Board {
         (same(-1, 0) && same(-2, 0)) || (same(0, -1) && same(0, -2))
     }
 
-    /// Lets gems drop into the empty cells below them. Returns each moved gem's id and
-    /// its new cell.
-    pub fn collapse(&mut self) -> Vec<(u32, Pos)> {
-        let mut falls = Vec::new();
-        for x in 0..SIZE {
-            let mut floor = SIZE - 1;
-            for y in (0..SIZE).rev() {
-                let from = Pos::new(x, y);
-                if let Some(gem) = self.get(from) {
-                    let to = Pos::new(x, floor);
-                    if to != from {
-                        self.set(to, Some(gem));
-                        self.set(from, None);
-                        falls.push((gem.id, to));
-                    }
-                    floor -= 1;
-                }
-            }
-        }
-        falls
-    }
-
-    /// Fills the empty cells (all at the top of their columns after [`Board::collapse`])
-    /// with random gems; one in `time_odds` carries a time bonus (never for 0). Returns
-    /// each new gem, its cell and the row it starts falling from (above the board).
-    pub fn refill(&mut self, rng: &mut Rng, time_odds: u32) -> Vec<(Gem, Pos, i32)> {
-        let mut spawns = Vec::new();
-        for x in 0..SIZE {
-            let missing = (0..SIZE)
-                .filter(|&y| self.get(Pos::new(x, y)).is_none())
-                .count() as i32;
-            for y in 0..SIZE {
-                let p = Pos::new(x, y);
-                if self.get(p).is_none() {
-                    let color = rng.below(u32::from(COLORS)) as u8;
-                    let gem = self.new_gem(color, Power::None, rng.one_in(time_odds));
-                    self.set(p, Some(gem));
-                    spawns.push((gem, p, y - missing));
-                }
-            }
-        }
-        spawns
-    }
-
     /// Mixes the gems up until no three line up and a move exists; falls back to a new
     /// random board. Returns every gem with its new cell.
     pub fn reshuffle(&mut self, rng: &mut Rng) -> Vec<(Gem, Pos)> {
@@ -206,24 +162,6 @@ mod tests {
             assert!(matcher::find(&board, &[]).is_empty(), "seed {seed}");
             assert!(!moves::valid_swaps(&board).is_empty(), "seed {seed}");
         }
-    }
-
-    #[test]
-    fn collapse_drops_gems_and_refill_tops_up() {
-        let mut board = Board::parse(&["0", ".", "1", "."]);
-        let falls = board.collapse();
-        assert_eq!(board.get(Pos::new(0, SIZE - 1)).map(|g| g.color), Some(1));
-        assert_eq!(board.get(Pos::new(0, SIZE - 2)).map(|g| g.color), Some(0));
-        assert_eq!(falls.len(), 2);
-        let spawns = board.refill(&mut Rng::new(1), 0);
-        assert_eq!(spawns.len() as i32, SIZE * SIZE - 2);
-        assert!(Pos::all().all(|p| board.get(p).is_some()));
-        // Column 0 lost six gems: the top new one starts six rows above the board.
-        let (_, _, from) = spawns
-            .iter()
-            .find(|(_, p, _)| *p == Pos::new(0, 0))
-            .unwrap();
-        assert_eq!(*from, -6);
     }
 
     #[test]
