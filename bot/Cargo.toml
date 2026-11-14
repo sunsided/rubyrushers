@@ -13,7 +13,7 @@ publish = false
 anyhow = "1"
 base64 = "0.22"
 # The --watch window. The toolkit only: the bot still never links the game.
-game-toolkit = "0.11"
+game-toolkit.workspace = true
 png = "0.18"
 serde_json = "1"
 tungstenite = "0.29"
@@ -21,7 +21,7 @@ tungstenite = "0.29"
 # Only the accuracy harness looks at the game's own state, to grade what the bot saw.
 # The bot itself never links the game.
 [dev-dependencies]
-rubyrushers = { path = ".." }
+rubyrushers = { path = "../game" }
 
 [lints]
 workspace = true

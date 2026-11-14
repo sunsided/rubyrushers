@@ -1,5 +1,5 @@
 [workspace]
-members = ["bot"]
+members = ["game", "bot"]
 resolver = "3"
 
 [workspace.package]
@@ -8,6 +8,9 @@ rust-version = "1.95"
 license = "EUPL-1.2"
 authors = ["Markus Mayer"]
 repository = "https://github.com/sunsided/rubyrushers"
+
+[workspace.dependencies]
+game-toolkit = "0.11"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -21,32 +24,6 @@ todo = "warn"
 manual_let_else = "warn"
 semicolon_if_nothing_returned = "warn"
 uninlined_format_args = "warn"
-
-[package]
-name = "rubyrushers"
-version = "0.1.0"
-description = "A fast match-three gem game on game-toolkit: a 60-second rush and an endless mode."
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-authors.workspace = true
-repository.workspace = true
-publish = false
-
-[dependencies]
-game-toolkit = { version = "0.11", features = ["synth"] }
-log = "0.4"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.11"
-
-# The browser: prefers-reduced-motion picks calm effects, local storage keeps the best
-# scores, the clock seeds the boards, the query string sets the start options.
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Location", "MediaQueryList", "Storage", "Window"] }
-
-[lints]
-workspace = true
 
 # Light optimization for our own code, full for dependencies: playable debug builds that
 # still compile fast.
