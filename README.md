@@ -3,6 +3,13 @@
 A fast match-three gem game built on [game-toolkit](https://github.com/sunsided/game-toolkit).
 Swap neighbouring gems to line up three or more; bigger lines leave special gems behind.
 
+<p>
+  <img src="docs/rush.png" alt="Rush mode mid-game: sparks, score popups, a bomb going off and time gems" width="49%">
+  <img src="docs/tilt.png" alt="Tilt mode: arrows warn that gravity is about to turn left" width="49%">
+</p>
+
+*Both captured from the bot playing (Rush, and Tilt two seconds before gravity turns).*
+
 - **Rush**: 60 seconds on the clock, time gems add more. Stuck boards are reshuffled.
   Time gems follow `--time cap` (+5 s each, +60 s at most; the default) or `--time fade`
   (+5 s, then half a second less each, down to +1 s); on the web `?time=fade`.
