@@ -12,7 +12,7 @@ the toolkit sources.
   `Event`s. Gravity works on lanes and depths, so every direction shares one code path;
   it only turns while the board is still. The player may swap
   any two settled gems while the rest still moves.
-- `game/src/render/` - draws the session's pieces in a 960x720 design space scaled to the
+- `game/src/render/` - draws the session's pieces in a 960×720 design space scaled to the
   window (`Layout`). `Fx` turns events into vanishing gems, sparks and popups; `Effects`
   (Full/Calm) gates shake, spin, pulsing, the board's glowing frame, halos, shine and
   landing squash, and ambient sparkle; `showcase` draws the title backdrop; `gem_art` rasterises the
@@ -29,9 +29,16 @@ the toolkit sources.
 
 - One type per module (`name.rs` + `name/`, never `mod.rs`); doc comments on everything,
   private items included.
+- Don't write dense code: separate the steps of a function body (setup, work, result) with
+  blank lines, as in `bot/src/image.rs`, and leave a blank line after the closing brace
+  of an `if`/`for`/`while`/`match` block unless another brace follows.
+- Keep functions short and shallow: when a body nests past about three levels or runs past
+  a screen, extract named helpers with doc comments (see `groups` in `bot/src/sim.rs`).
+- Dimensions in comments and docs use `×` (`8×8`, `` `w` × `h` ``), not `x`.
 - Every rule change gets a test in `logic/`. `task check` (fmt, clippy -D warnings, tests,
   docs) must pass.
-- Own names and look: no other game's names in identifiers, text or assets.
+- Own names and look: no other game's names in identifiers, text or assets (the history
+  section of `bot/README.md` may name the game its 2010 predecessor played).
 - Keep gems distinct by silhouette and colour: the bot reads only screenshots. Do not add
   hooks that expose game state to it. Anything drawn between gems must stay dark and
   unsaturated (the bot finds gems as colourful blobs): rerun `task bot:accuracy` after

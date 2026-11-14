@@ -9,7 +9,7 @@ use super::gem_art::{TILE, WILD_TILE};
 use super::layout::{BOARD, BOARD_SIZE, CELL, Layout};
 use super::showcase::rainbow;
 use crate::logic::score::MAX_SPEED;
-use crate::logic::{Gem, Gravity, Pos, Power, SIZE, Session};
+use crate::logic::{Gem, Gravity, Piece, Pos, Power, SIZE, Session};
 
 /// The window background.
 const BG: Layer = Layer(0);
@@ -49,6 +49,7 @@ pub fn soft_disc(p: &mut Painter<'_>, center: [f32; 2], r: f32, color: Color, la
         [center[0] + r * a.cos(), center[1] + r * a.sin()]
     };
     let outer = color.with_alpha(0.0);
+
     for k in 0..SLICES {
         p.quad_colored(
             [center, center, rim(k + 1), rim(k)],
@@ -99,81 +100,33 @@ pub fn board(
     if full {
         frame(p, layout, session, time, pad);
     }
-    // Opaque enough that nothing behind the board looks like a gem between them.
-    p.rect_ex(
-        layout.px([BOARD[0] - pad, BOARD[1] - pad]),
-        [layout.len(BOARD_SIZE + 2.0 * pad); 2],
-        Color::rgba(0.0, 0.0, 0.0, if full { 0.8 } else { 0.45 }),
-        CELLS,
-        BlendMode::Alpha,
-    );
-    for c in Pos::all() {
-        let shade = if (c.x + c.y) % 2 == 0 { 0.07 } else { 0.03 };
-        p.rect_ex(
-            layout.px([BOARD[0] + c.x as f32 * CELL, BOARD[1] + c.y as f32 * CELL]),
-            [layout.cell(); 2],
-            Color::rgba(0.7, 0.75, 1.0, shade),
-            CELLS,
-            BlendMode::Alpha,
-        );
-    }
+
+    cells(p, layout, pad, full);
 
     let pulse = if full {
         0.5 + 0.5 * (time * 6.0).sin()
     } else {
         0.6
     };
+
     if let Some((a, b)) = marks.hint {
-        for c in [a, b] {
-            p.circle_ex(
-                cell_px(layout, [c.x as f32, c.y as f32]),
-                layout.cell() * (0.45 + 0.05 * pulse),
-                0.0,
-                Color::rgba(1.0, 1.0, 0.8, 0.12 + 0.18 * pulse),
-                CELLS,
-            );
-        }
+        hint(p, layout, [a, b], pulse);
     }
 
     let sideways = matches!(session.gravity(), Gravity::Left | Gravity::Right);
     let bonus = session.next_time_bonus();
+
     for q in session.pieces() {
         let selected = marks
             .selected
             .is_some_and(|c| q.pos == [c.x as f32, c.y as f32]);
-        let wobble = if full && selected {
-            0.12 * (time * 9.0).sin()
-        } else {
-            0.0
-        };
-        let spin = if full && q.gem.power == Power::Wild {
-            time * 1.8
-        } else {
-            wobble
-        };
-        let stretch = if full {
-            1.0 + (q.speed * 0.004).min(0.14) - 0.2 * fx.squash(q.gem.id)
-        } else {
-            1.0
-        };
-        // Resting gems breathe a little, each in its own rhythm.
-        let breath = if full && q.speed == 0.0 && !q.swapping {
-            1.0 + 0.025 * (time * 2.2 + q.gem.id as f32 * 1.7).sin()
-        } else {
-            1.0
-        };
         let look = Look {
-            gem: q.gem,
-            pos: q.pos,
-            scale: fx.born_scale(q.gem.id) * breath,
-            alpha: 1.0,
-            spin,
-            stretch,
             sideways,
             bonus,
-            shine: if full { shine(q.pos, time) } else { 0.0 },
+            ..piece_look(&q, fx, time, full, selected)
         };
         gem(p, layout, atlas, look, time, full);
+
         if selected {
             p.circle_ex(
                 cell_px(layout, q.pos),
@@ -184,6 +137,7 @@ pub fn board(
             );
         }
     }
+
     for v in fx.vanishing() {
         let look = Look {
             gem: v.gem,
@@ -200,6 +154,84 @@ pub fn board(
     }
 }
 
+/// The board's dark backing, `pad` wider than the cells, and the checkered cells on it.
+fn cells(p: &mut Painter<'_>, layout: &Layout, pad: f32, full: bool) {
+    // Opaque enough that nothing behind the board looks like a gem between them.
+    p.rect_ex(
+        layout.px([BOARD[0] - pad, BOARD[1] - pad]),
+        [layout.len(BOARD_SIZE + 2.0 * pad); 2],
+        Color::rgba(0.0, 0.0, 0.0, if full { 0.8 } else { 0.45 }),
+        CELLS,
+        BlendMode::Alpha,
+    );
+
+    for c in Pos::all() {
+        let shade = if (c.x + c.y) % 2 == 0 { 0.07 } else { 0.03 };
+        p.rect_ex(
+            layout.px([BOARD[0] + c.x as f32 * CELL, BOARD[1] + c.y as f32 * CELL]),
+            [layout.cell(); 2],
+            Color::rgba(0.7, 0.75, 1.0, shade),
+            CELLS,
+            BlendMode::Alpha,
+        );
+    }
+}
+
+/// Soft lights under the two cells of a suggested move, as bright as `pulse` (0 to 1).
+fn hint(p: &mut Painter<'_>, layout: &Layout, cells: [Pos; 2], pulse: f32) {
+    for c in cells {
+        p.circle_ex(
+            cell_px(layout, [c.x as f32, c.y as f32]),
+            layout.cell() * (0.45 + 0.05 * pulse),
+            0.0,
+            Color::rgba(1.0, 1.0, 0.8, 0.12 + 0.18 * pulse),
+            CELLS,
+        );
+    }
+}
+
+/// How the gem of piece `q` is drawn now: with full effects it wobbles when `selected`,
+/// spins when wild, stretches as it falls and breathes at rest. Not sideways and worth
+/// no time bonus: the caller fills those in.
+fn piece_look(q: &Piece, fx: &Fx, time: f32, full: bool, selected: bool) -> Look {
+    let wobble = if full && selected {
+        0.12 * (time * 9.0).sin()
+    } else {
+        0.0
+    };
+
+    let spin = if full && q.gem.power == Power::Wild {
+        time * 1.8
+    } else {
+        wobble
+    };
+
+    let stretch = if full {
+        1.0 + (q.speed * 0.004).min(0.14) - 0.2 * fx.squash(q.gem.id)
+    } else {
+        1.0
+    };
+
+    // Resting gems breathe a little, each in its own rhythm.
+    let breath = if full && q.speed == 0.0 && !q.swapping {
+        1.0 + 0.025 * (time * 2.2 + q.gem.id as f32 * 1.7).sin()
+    } else {
+        1.0
+    };
+
+    Look {
+        gem: q.gem,
+        pos: q.pos,
+        scale: fx.born_scale(q.gem.id) * breath,
+        alpha: 1.0,
+        spin,
+        stretch,
+        sideways: false,
+        bonus: 0.0,
+        shine: if full { shine(q.pos, time) } else { 0.0 },
+    }
+}
+
 /// How brightly the shine sweeping diagonally across the board every few seconds lights
 /// up a gem at cell `c`, 0 to 1.
 fn shine(c: [f32; 2], time: f32) -> f32 {
@@ -208,6 +240,7 @@ fn shine(c: [f32; 2], time: f32) -> f32 {
     // From before the top-left corner (-0.2) to past the bottom-right (1.2).
     let front = (time / EVERY).fract() * 2.5 - 0.2;
     let at = (c[0] + c[1]) / (2.0 * (SIZE - 1) as f32);
+
     (1.0 - (front - at).abs() * 7.0).max(0.0)
 }
 
@@ -223,6 +256,7 @@ fn frame(p: &mut Painter<'_>, layout: &Layout, session: &Session, time: f32, pad
     let width = 4.0 + 3.0 * heat;
     let glow = 14.0 + 22.0 * heat;
     let glow_alpha = 0.18 + 0.27 * heat;
+
     for i in 0..4 {
         let (a, b) = (corners[i], corners[(i + 1) % 4]);
         let (ca, cb) = (color(i), color(i + 1));
@@ -271,25 +305,21 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
         .into_iter()
         .fold(0.0f32, f32::max);
     let alpha = s.alpha * (1.0 - outside).clamp(0.0, 1.0);
+
     if alpha <= 0.0 || s.scale <= 0.0 {
         return;
     }
+
     let center = cell_px(layout, s.pos);
     let size = layout.cell() * 0.94 * s.scale;
     let (across, along) = (size / s.stretch.sqrt(), size * s.stretch);
+
     let dims = if s.sideways {
         [along, across]
     } else {
         [across, along]
     };
-    let tile = if s.gem.power == Power::Wild {
-        WILD_TILE
-    } else {
-        u32::from(s.gem.color)
-    };
-    let region = ([(tile * TILE) as f32, 0.0], [TILE as f32; 2]);
-    let top_left = |c: [f32; 2]| [c[0] - dims[0] / 2.0, c[1] - dims[1] / 2.0];
-    let off = layout.len(4.0);
+
     let wave = |speed: f32, phase: f32| {
         if full {
             (time * speed + phase).sin()
@@ -298,34 +328,76 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
         }
     };
 
-    // Glows under special gems.
-    let glow = match s.gem.power {
+    glows(p, center, size, s.gem, alpha, full, &wave);
+    sprites(p, layout, atlas, s, center, dims, alpha);
+    power_mark(p, layout, center, size, s.gem.power, alpha, &wave);
+
+    if s.gem.time_bonus && s.bonus > 0.0 {
+        time_mark(p, layout, center, size, s.bonus, alpha, &wave);
+    }
+}
+
+/// What lies under gem `g`: with full effects a faint pool of its own colour, and a
+/// pulsing glow under special gems.
+fn glows(
+    p: &mut Painter<'_>,
+    center: [f32; 2],
+    size: f32,
+    g: Gem,
+    alpha: f32,
+    full: bool,
+    wave: &impl Fn(f32, f32) -> f32,
+) {
+    let glow = match g.power {
         Power::Bomb => Some(Color::rgb(1.0, 0.55, 0.15)),
         Power::Cross => Some(Color::rgb(0.6, 0.85, 1.0)),
         Power::Wild => Some(Color::WHITE),
         Power::None => None,
     };
-    if full && s.gem.power != Power::Wild {
+
+    if full && g.power != Power::Wild {
         // A faint pool of the gem's own colour beneath it, kept inside its cell so the
         // gaps between gems stay dark.
         soft_disc(
             p,
             center,
             size * 0.5,
-            gem_color(s.gem.color).with_alpha(0.14 * alpha),
+            gem_color(g.color).with_alpha(0.14 * alpha),
             CELLS,
         );
     }
-    if let Some(g) = glow {
-        let pulse = 0.5 + 0.5 * wave(5.0, s.gem.id as f32);
+
+    if let Some(c) = glow {
+        let pulse = 0.5 + 0.5 * wave(5.0, g.id as f32);
         p.circle_ex(
             center,
             size * (0.5 + 0.06 * pulse),
             0.0,
-            g.with_alpha(alpha * (0.25 + 0.25 * pulse)),
+            c.with_alpha(alpha * (0.25 + 0.25 * pulse)),
             CELLS,
         );
     }
+}
+
+/// The gem's sprite from the atlas, `dims` big at `center`: its shadow, the gem, and the
+/// passing shine added on top.
+fn sprites(
+    p: &mut Painter<'_>,
+    layout: &Layout,
+    atlas: TextureId,
+    s: Look,
+    center: [f32; 2],
+    dims: [f32; 2],
+    alpha: f32,
+) {
+    let tile = if s.gem.power == Power::Wild {
+        WILD_TILE
+    } else {
+        u32::from(s.gem.color)
+    };
+    let region = ([(tile * TILE) as f32, 0.0], [TILE as f32; 2]);
+    let top_left = |c: [f32; 2]| [c[0] - dims[0] / 2.0, c[1] - dims[1] / 2.0];
+    let off = layout.len(4.0);
 
     p.draw_sprite(atlas, top_left([center[0] + off, center[1] + off]), dims)
         .region(region.0, region.1)
@@ -337,6 +409,7 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
         .rotation(s.spin)
         .color(Color::WHITE.with_alpha(alpha))
         .layer(GEMS);
+
     if s.shine > 0.0 {
         // The gem once more, added on top: it lights up in its own colour.
         p.draw_sprite(atlas, top_left(center), dims)
@@ -346,8 +419,19 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
             .blend(BlendMode::Additive)
             .layer(GEMS);
     }
+}
 
-    match s.gem.power {
+/// The mark on a special gem: a pulsing ring on a bomb, a plus on a cross gem.
+fn power_mark(
+    p: &mut Painter<'_>,
+    layout: &Layout,
+    center: [f32; 2],
+    size: f32,
+    power: Power,
+    alpha: f32,
+    wave: &impl Fn(f32, f32) -> f32,
+) {
+    match power {
         Power::Bomb => {
             let r = size * (0.36 + 0.03 * wave(7.0, 0.0));
             let c = Color::rgba(1.0, 0.9, 0.5, alpha * 0.9);
@@ -377,14 +461,25 @@ fn gem(p: &mut Painter<'_>, layout: &Layout, atlas: TextureId, s: Look, time: f3
         }
         Power::Wild | Power::None => {}
     }
-    if s.gem.time_bonus && s.bonus > 0.0 {
-        let c = Color::rgba(0.4, 1.0, 0.9, alpha * (0.7 + 0.3 * wave(4.0, 0.0)));
-        p.circle_ex(center, size * 0.47, layout.len(3.0), c, MARKS);
-        let label = format!("+{}", (s.bonus * 10.0).round() / 10.0);
-        p.draw_text([center[0], center[1] + size * 0.12], &label)
-            .size(size * 0.3)
-            .align(Align::Center)
-            .color(Color::WHITE.with_alpha(alpha))
-            .layer(MARKS);
-    }
+}
+
+/// The ring and label of a time gem worth `bonus` seconds.
+fn time_mark(
+    p: &mut Painter<'_>,
+    layout: &Layout,
+    center: [f32; 2],
+    size: f32,
+    bonus: f32,
+    alpha: f32,
+    wave: &impl Fn(f32, f32) -> f32,
+) {
+    let c = Color::rgba(0.4, 1.0, 0.9, alpha * (0.7 + 0.3 * wave(4.0, 0.0)));
+    p.circle_ex(center, size * 0.47, layout.len(3.0), c, MARKS);
+
+    let label = format!("+{}", (bonus * 10.0).round() / 10.0);
+    p.draw_text([center[0], center[1] + size * 0.12], &label)
+        .size(size * 0.3)
+        .align(Align::Center)
+        .color(Color::WHITE.with_alpha(alpha))
+        .layer(MARKS);
 }

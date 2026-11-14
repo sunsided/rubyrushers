@@ -14,7 +14,7 @@ pub struct Image {
 }
 
 impl Image {
-    /// An image of `width` x `height` filled with `color`.
+    /// An image of `width` × `height` filled with `color`.
     pub fn filled(width: usize, height: usize, color: [u8; 3]) -> Self {
         Self {
             width,
@@ -27,19 +27,23 @@ impl Image {
     pub fn from_png(bytes: &[u8]) -> Result<Self> {
         let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         decoder.set_transformations(png::Transformations::normalize_to_color8());
+
         let mut reader = decoder.read_info().context("PNG header")?;
         let mut buf = vec![0; reader.output_buffer_size().context("PNG too large")?];
         let info = reader.next_frame(&mut buf).context("PNG data")?;
+
         let (w, h) = (info.width as usize, info.height as usize);
         let step = match info.color_type {
             png::ColorType::Rgb => 3,
             png::ColorType::Rgba => 4,
             other => bail!("unexpected PNG colour type {other:?}"),
         };
+
         let rgb = buf[..w * h * step]
             .chunks_exact(step)
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect();
+
         Ok(Self {
             width: w,
             height: h,
@@ -66,6 +70,7 @@ pub fn hsv(c: [u8; 3]) -> (f32, f32, f32) {
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
     let d = max - min;
+
     let h = if d == 0.0 {
         0.0
     } else if max == r {
@@ -76,6 +81,7 @@ pub fn hsv(c: [u8; 3]) -> (f32, f32, f32) {
         60.0 * ((r - g) / d + 4.0)
     };
     let s = if max == 0.0 { 0.0 } else { d / max };
+
     (h, s, max)
 }
 

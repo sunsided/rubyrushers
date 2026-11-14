@@ -12,10 +12,12 @@ pub type Bests = [u64; 3];
 /// Reads `key=value` lines; unknown keys and bad lines are skipped.
 pub fn parse(text: &str) -> Bests {
     let mut bests = [0; 3];
+
     for line in text.lines() {
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
+
         if let (Some(i), Ok(v)) = (
             KEYS.iter().position(|k| *k == key.trim()),
             value.trim().parse(),
@@ -23,6 +25,7 @@ pub fn parse(text: &str) -> Bests {
             bests[i] = v;
         }
     }
+
     bests
 }
 
@@ -84,6 +87,7 @@ mod store {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
+
         std::fs::write(path, text)
     }
 }

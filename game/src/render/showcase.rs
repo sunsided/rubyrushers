@@ -33,6 +33,7 @@ fn hash(i: u32, k: u32) -> f32 {
     x ^= x >> 15;
     x = x.wrapping_mul(0x846C_A68B);
     x ^= x >> 16;
+
     (x >> 8) as f32 / (1u32 << 24) as f32
 }
 
@@ -47,13 +48,16 @@ pub fn rainbow(u: f32) -> Color {
 pub fn backdrop(p: &mut Painter<'_>, l: &Layout, atlas: TextureId, time: f32, effects: Effects) {
     let full = effects.full();
     let t = if full { time } else { 0.0 };
+
     if full {
         glows(p, l, t, 0.22);
         twinkles(p, l, t);
     }
+
     // Small, faint and slow ones first: they are further away.
     let mut order: Vec<u32> = (0..GEM_COUNT).collect();
     order.sort_by(|a, b| hash(*a, 1).total_cmp(&hash(*b, 1)));
+
     for i in order {
         let depth = hash(i, 1);
         let size = 30.0 + depth * 60.0;
@@ -96,15 +100,18 @@ fn twinkles(p: &mut Painter<'_>, l: &Layout, t: f32) {
         let u = t / period + hash(i, 21);
         let round = u.floor() as u32;
         let k = u.fract();
+
         // Visible for the first third of each round: grows, then shrinks.
         if k > 1.0 / 3.0 {
             continue;
         }
+
         let grow = 1.0 - (6.0 * k - 1.0).abs();
         let pos = [
             hash(i * 977 + round, 22) * DESIGN_W,
             hash(i * 977 + round, 23) * DESIGN_H,
         ];
+
         let color = if hash(i + round, 24) < 0.5 {
             Color::WHITE
         } else {

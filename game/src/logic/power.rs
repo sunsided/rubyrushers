@@ -6,7 +6,7 @@ pub enum Power {
     /// A plain gem.
     #[default]
     None,
-    /// From a match of four: clears the 3x3 cells around it.
+    /// From a match of four: clears the 3×3 cells around it.
     Bomb,
     /// From an L or T shape: clears its whole row and column.
     Cross,

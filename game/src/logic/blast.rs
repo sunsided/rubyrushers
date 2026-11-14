@@ -18,6 +18,7 @@ pub fn detonate(
 ) -> Vec<(Power, Pos, Vec<Pos>)> {
     let mut blasts = Vec::new();
     let mut done: BTreeSet<Pos> = BTreeSet::new();
+
     loop {
         let next = doomed
             .iter()
@@ -26,49 +27,63 @@ pub fn detonate(
         let Some(at) = next else {
             break;
         };
+
         done.insert(at);
         let power = board.get(at).map(|g| g.power).unwrap_or_default();
-        let reach: Vec<Pos> = match power {
-            Power::None => Vec::new(),
-            Power::Bomb => (-1..=1)
-                .flat_map(|dy| (-1..=1).map(move |dx| Pos::new(at.x + dx, at.y + dy)))
-                .filter(|p| p.on_board())
-                .collect(),
-            Power::Cross => (0..SIZE)
-                .flat_map(|i| [Pos::new(i, at.y), Pos::new(at.x, i)])
-                .collect(),
-            Power::Wild => {
-                let color = wild_colors
-                    .iter()
-                    .find(|(p, _)| *p == at)
-                    .map(|&(_, c)| c)
-                    .unwrap_or_else(|| random_present_color(board, rng));
-                Pos::all()
-                    .filter(|p| {
-                        board
-                            .get(*p)
-                            .is_some_and(|g| g.power != Power::Wild && g.color == color)
-                    })
-                    .collect()
-            }
-        };
+        let reach = reach(board, rng, at, power, wild_colors);
+
         doomed.extend(reach.iter().copied());
         blasts.push((power, at, reach));
     }
+
     blasts
+}
+
+/// The cells the `power` gem at `at` takes out. A wild takes out its colour from
+/// `wild_colors`, or a random colour still on the board.
+fn reach(
+    board: &Board,
+    rng: &mut Rng,
+    at: Pos,
+    power: Power,
+    wild_colors: &[(Pos, u8)],
+) -> Vec<Pos> {
+    match power {
+        Power::None => Vec::new(),
+        Power::Bomb => (-1..=1)
+            .flat_map(|dy| (-1..=1).map(move |dx| Pos::new(at.x + dx, at.y + dy)))
+            .filter(|p| p.on_board())
+            .collect(),
+        Power::Cross => (0..SIZE)
+            .flat_map(|i| [Pos::new(i, at.y), Pos::new(at.x, i)])
+            .collect(),
+        Power::Wild => {
+            let color = wild_colors
+                .iter()
+                .find(|(p, _)| *p == at)
+                .map(|&(_, c)| c)
+                .unwrap_or_else(|| random_present_color(board, rng));
+
+            Pos::all()
+                .filter(|p| is_plain_of(board, *p, color))
+                .collect()
+        }
+    }
+}
+
+/// Whether the gem at `p` has `color` and is not itself a wild.
+fn is_plain_of(board: &Board, p: Pos, color: u8) -> bool {
+    board
+        .get(p)
+        .is_some_and(|g| g.power != Power::Wild && g.color == color)
 }
 
 /// A colour some non-wild gem on the board has (any colour if none has).
 fn random_present_color(board: &Board, rng: &mut Rng) -> u8 {
     let present: Vec<u8> = (0..COLORS)
-        .filter(|&c| {
-            Pos::all().any(|p| {
-                board
-                    .get(p)
-                    .is_some_and(|g| g.power != Power::Wild && g.color == c)
-            })
-        })
+        .filter(|&c| Pos::all().any(|p| is_plain_of(board, p, c)))
         .collect();
+
     if present.is_empty() {
         rng.below(u32::from(COLORS)) as u8
     } else {

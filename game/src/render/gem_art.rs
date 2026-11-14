@@ -26,26 +26,32 @@ pub const BASE: [[f32; 3]; COLORS as usize] = [
     [0.90, 0.93, 1.00], // diamond: octagon
 ];
 
-/// The atlas: `TILES` tiles side by side, RGBA8, `TILE * TILES` x `TILE` pixels.
+/// The atlas: `TILES` tiles side by side, RGBA8, `TILE * TILES` × `TILE` pixels.
 pub fn atlas() -> Vec<u8> {
     let w = TILE * TILES;
     let mut rgba = vec![0u8; (w * TILE * 4) as usize];
+
     for tile in 0..TILES {
         for y in 0..TILE {
             for x in 0..TILE {
-                let c = if tile == WILD_TILE {
-                    wild_pixel(x, y)
-                } else {
-                    gem_pixel(tile as usize, x, y)
-                };
                 let i = ((y * w + tile * TILE + x) * 4) as usize;
-                for (k, v) in c.iter().enumerate() {
-                    rgba[i + k] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-                }
+                rgba[i..i + 4].copy_from_slice(&texel(tile, x, y));
             }
         }
     }
+
     rgba
+}
+
+/// Pixel (`x`, `y`) of tile `tile`, as RGBA8.
+fn texel(tile: u32, x: u32, y: u32) -> [u8; 4] {
+    let c = if tile == WILD_TILE {
+        wild_pixel(x, y)
+    } else {
+        gem_pixel(tile as usize, x, y)
+    };
+
+    c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
 }
 
 /// The outline of gem colour `color`: a polygon around the origin, star-shaped from it,
@@ -59,6 +65,7 @@ fn outline(color: usize) -> Vec<[f32; 2]> {
             })
             .collect()
     };
+
     match color {
         0 => regular(16, 0.88, 0.0),
         1 => regular(3, 1.08, -90.0)
@@ -83,21 +90,26 @@ fn outline(color: usize) -> Vec<[f32; 2]> {
 /// index of the edge it crosses.
 fn reach(poly: &[[f32; 2]], d: [f32; 2]) -> (f32, usize) {
     let mut best = (f32::MAX, 0);
+
     for i in 0..poly.len() {
         let a = poly[i];
         let b = poly[(i + 1) % poly.len()];
         let e = [b[0] - a[0], b[1] - a[1]];
         let den = d[0] * e[1] - d[1] * e[0];
+
         if den.abs() < 1e-9 {
             continue;
         }
+
         // Solve t*d = a + s*e.
         let t = (a[0] * e[1] - a[1] * e[0]) / den;
         let s = (a[0] * d[1] - a[1] * d[0]) / den;
+
         if t > 0.0 && (-1e-4..=1.0 + 1e-4).contains(&s) && t < best.0 {
             best = (t, i);
         }
     }
+
     best
 }
 
@@ -115,35 +127,44 @@ fn gem_pixel(color: usize, x: u32, y: u32) -> [f32; 4] {
         (y as f32 + 0.5 - half) / RADIUS,
     ];
     let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+
     if r < 1e-6 {
         return shade(color, 1.0, 0.0, p);
     }
+
     let d = [p[0] / r, p[1] / r];
     let (edge_r, edge) = reach(&poly, d);
     // Anti-aliased coverage over about one pixel at the outline.
     let coverage = ((edge_r - r) * RADIUS + 0.5).clamp(0.0, 1.0);
+
     if coverage <= 0.0 {
         return [0.0; 4];
     }
+
     // The edge's outward normal says which way the facet faces.
     let a = poly[edge];
     let b = poly[(edge + 1) % poly.len()];
     let mut n = [b[1] - a[1], a[0] - b[0]];
     let len = (n[0] * n[0] + n[1] * n[1]).sqrt();
     n = [n[0] / len, n[1] / len];
+
     if n[0] * a[0] + n[1] * a[1] < 0.0 {
         n = [-n[0], -n[1]];
     }
+
     let facing = n[0] * LIGHT[0] + n[1] * LIGHT[1];
     let depth = r / edge_r;
     let mut c = shade(color, depth, facing, p);
+
     // A dark rim along the outline.
     if (edge_r - r) * RADIUS < 2.5 {
         for v in &mut c[..3] {
             *v *= 0.55;
         }
     }
+
     c[3] = coverage;
+
     c
 }
 
@@ -151,6 +172,7 @@ fn gem_pixel(color: usize, x: u32, y: u32) -> [f32; 4] {
 /// faces the light by `facing` (-1..1); `p` is the position for the highlight.
 fn shade(color: usize, depth: f32, facing: f32, p: [f32; 2]) -> [f32; 4] {
     let base = BASE[color];
+
     let light = if depth < 0.52 {
         // The table: flat, brighter towards the top.
         1.0 - p[1] * 0.25
@@ -164,9 +186,11 @@ fn shade(color: usize, depth: f32, facing: f32, p: [f32; 2]) -> [f32; 4] {
     let dy = p[1] + 0.38;
     let spec = (-(dx * dx + dy * dy) / 0.035).exp() * 0.75;
     let mut c = [0.0, 0.0, 0.0, 1.0];
+
     for k in 0..3 {
         c[k] = base[k] * light + spec + (1.0 - base[k]) * 0.12 * facing.max(0.0);
     }
+
     c
 }
 
@@ -179,9 +203,11 @@ fn wild_pixel(x: u32, y: u32) -> [f32; 4] {
     ];
     let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
     let coverage = ((1.0 - r) * RADIUS + 0.5).clamp(0.0, 1.0);
+
     if coverage <= 0.0 {
         return [0.0; 4];
     }
+
     let hue = (p[1].atan2(p[0]) / TAU + r * 0.7).rem_euclid(1.0);
     let [hr, hg, hb] = hue_rgb(hue);
     let core = (1.0 - r * 1.6).max(0.0);
@@ -190,6 +216,7 @@ fn wild_pixel(x: u32, y: u32) -> [f32; 4] {
     let dy = p[1] + 0.35;
     let spec = (-(dx * dx + dy * dy) / 0.03).exp() * 0.8;
     let mix = |h: f32| ((h * (0.75 + 0.25 * (1.0 - r)) + core) * rim + spec).min(1.0);
+
     [mix(hr), mix(hg), mix(hb), coverage]
 }
 
@@ -209,6 +236,7 @@ mod tests {
         let rgba = atlas();
         let w = TILE * TILES;
         let alpha = |x: u32, y: u32| rgba[((y * w + x) * 4 + 3) as usize];
+
         for tile in 0..TILES {
             assert_eq!(alpha(tile * TILE + TILE / 2, TILE / 2), 255, "tile {tile}");
             assert_eq!(alpha(tile * TILE + 1, 1), 0, "tile {tile}");
@@ -228,6 +256,7 @@ mod tests {
                 })
                 .collect()
         };
+
         for a in 0..u32::from(COLORS) {
             for b in 0..a {
                 let diff = mask(a)

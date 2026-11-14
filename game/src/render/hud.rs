@@ -62,6 +62,7 @@ pub fn panel(
     effects: Effects,
 ) {
     gravity(p, l, session);
+
     let x = 40.0;
     text(p, l, [x, 40.0], "RUBY", 44.0, ACCENT, Align::Left);
     text(p, l, [x, 84.0], "RUSHERS", 44.0, Color::WHITE, Align::Left);
@@ -94,67 +95,9 @@ pub fn panel(
         MUTED,
         Align::Left,
     );
-    if session.speed() > 0 {
-        let label = format!("SPEED x{}", score::speed_factor(session.speed()));
-        text(p, l, [x, 322.0], &label, 18.0, ACCENT, Align::Left);
-        let w = BOARD[0] - x - 40.0;
-        let left = session.speed_left();
-        p.rect_ex(
-            l.px([x, 346.0]),
-            [l.len(w * left), l.len(5.0)],
-            ACCENT,
-            HUD,
-            BlendMode::Alpha,
-        );
-    }
+    speed(p, l, session, x);
+    clock(p, l, session, x, time, effects);
 
-    if let Some(remaining) = session.mode().remaining() {
-        text(p, l, [x, 360.0], "TIME", 18.0, MUTED, Align::Left);
-        let w = BOARD[0] - x - 40.0;
-        let frac = (remaining / RUSH_SECS).clamp(0.0, 1.0);
-        let urgent = remaining < 10.0;
-        let flash = if effects.full() {
-            0.5 + 0.5 * (time * 10.0).sin()
-        } else {
-            0.0
-        };
-        let color = if urgent {
-            Color::rgb(1.0, 0.3, 0.25).lerp(Color::WHITE, 0.3 * flash)
-        } else {
-            Color::rgb(0.4, 1.0, 0.85)
-        };
-        p.rect_ex(
-            l.px([x, 388.0]),
-            [l.len(w), l.len(18.0)],
-            Color::rgba(1.0, 1.0, 1.0, 0.1),
-            HUD,
-            BlendMode::Alpha,
-        );
-        p.rect_ex(
-            l.px([x, 388.0]),
-            [l.len(w * frac), l.len(18.0)],
-            color,
-            HUD,
-            BlendMode::Alpha,
-        );
-        let next = session.next_time_bonus();
-        let rule = session.time_rule().name();
-        let gems = if next > 0.0 {
-            format!("time gems +{} s ({rule})", (next * 10.0).round() / 10.0)
-        } else {
-            format!("time gems spent ({rule})")
-        };
-        text(p, l, [x, 452.0], &gems, 14.0, MUTED, Align::Left);
-        text(
-            p,
-            l,
-            [x, 414.0],
-            &format!("{:.0} s", remaining.ceil()),
-            30.0,
-            color,
-            Align::Left,
-        );
-    }
     if session.best_cascade() >= 2 {
         text(
             p,
@@ -166,6 +109,91 @@ pub fn panel(
             Align::Left,
         );
     }
+
+    help(p, l, x, effects);
+}
+
+/// The speed bonus in the panel at `x`, with a bar for the time left to keep it.
+fn speed(p: &mut Painter<'_>, l: &Layout, session: &Session, x: f32) {
+    if session.speed() == 0 {
+        return;
+    }
+
+    let label = format!("SPEED x{}", score::speed_factor(session.speed()));
+    text(p, l, [x, 322.0], &label, 18.0, ACCENT, Align::Left);
+
+    let w = BOARD[0] - x - 40.0;
+    let left = session.speed_left();
+    p.rect_ex(
+        l.px([x, 346.0]),
+        [l.len(w * left), l.len(5.0)],
+        ACCENT,
+        HUD,
+        BlendMode::Alpha,
+    );
+}
+
+/// The clock in the panel at `x` (modes with one): a bar, the seconds left, and what the
+/// next time gem is worth. With full effects the last ten seconds flash.
+fn clock(p: &mut Painter<'_>, l: &Layout, session: &Session, x: f32, time: f32, effects: Effects) {
+    let Some(remaining) = session.mode().remaining() else {
+        return;
+    };
+
+    text(p, l, [x, 360.0], "TIME", 18.0, MUTED, Align::Left);
+
+    let w = BOARD[0] - x - 40.0;
+    let frac = (remaining / RUSH_SECS).clamp(0.0, 1.0);
+    let urgent = remaining < 10.0;
+    let flash = if effects.full() {
+        0.5 + 0.5 * (time * 10.0).sin()
+    } else {
+        0.0
+    };
+
+    let color = if urgent {
+        Color::rgb(1.0, 0.3, 0.25).lerp(Color::WHITE, 0.3 * flash)
+    } else {
+        Color::rgb(0.4, 1.0, 0.85)
+    };
+
+    p.rect_ex(
+        l.px([x, 388.0]),
+        [l.len(w), l.len(18.0)],
+        Color::rgba(1.0, 1.0, 1.0, 0.1),
+        HUD,
+        BlendMode::Alpha,
+    );
+    p.rect_ex(
+        l.px([x, 388.0]),
+        [l.len(w * frac), l.len(18.0)],
+        color,
+        HUD,
+        BlendMode::Alpha,
+    );
+
+    let next = session.next_time_bonus();
+    let rule = session.time_rule().name();
+    let gems = if next > 0.0 {
+        format!("time gems +{} s ({rule})", (next * 10.0).round() / 10.0)
+    } else {
+        format!("time gems spent ({rule})")
+    };
+
+    text(p, l, [x, 452.0], &gems, 14.0, MUTED, Align::Left);
+    text(
+        p,
+        l,
+        [x, 414.0],
+        &format!("{:.0} s", remaining.ceil()),
+        30.0,
+        color,
+        Align::Left,
+    );
+}
+
+/// The effect level and the controls, at the bottom of the panel at `x`.
+fn help(p: &mut Painter<'_>, l: &Layout, x: f32, effects: Effects) {
     text(
         p,
         l,
@@ -216,27 +244,9 @@ pub fn title(
     time: f32,
     effects: Effects,
 ) {
-    let full = effects.full();
     let cx = DESIGN_W / 2.0;
-    let name = "RUBY RUSHERS";
-    if full {
-        // Letter by letter, each placed after the width of the text before it.
-        let px = l.len(72.0);
-        let width = p.measure_text(name, px)[0];
-        let left = l.px([cx, 0.0])[0] - width / 2.0;
-        for (j, ch) in name.char_indices() {
-            let x = left + p.measure_text(&name[..j], px)[0];
-            let k = j as f32;
-            let y = l.px([0.0, 120.0 + 7.0 * (time * 3.0 - k * 0.45).sin()])[1];
-            p.draw_text([x, y], &ch.to_string())
-                .size(px)
-                .color(showcase::rainbow(time * 1.2 - k * 0.35))
-                .align(Align::Left)
-                .layer(HUD);
-        }
-    } else {
-        text(p, l, [cx, 120.0], name, 72.0, ACCENT, Align::Center);
-    }
+    title_name(p, l, time, effects);
+
     text(
         p,
         l,
@@ -246,54 +256,101 @@ pub fn title(
         MUTED,
         Align::Center,
     );
+
+    for (i, &best) in bests.iter().enumerate() {
+        button(p, l, i, best, hover == Some(i), time, effects);
+    }
+}
+
+/// The game's name on the title screen; with full effects, letter by letter, bobbing and
+/// running through the gem colours.
+fn title_name(p: &mut Painter<'_>, l: &Layout, time: f32, effects: Effects) {
+    let cx = DESIGN_W / 2.0;
+    let name = "RUBY RUSHERS";
+    if !effects.full() {
+        text(p, l, [cx, 120.0], name, 72.0, ACCENT, Align::Center);
+        return;
+    }
+
+    // Letter by letter, each placed after the width of the text before it.
+    let px = l.len(72.0);
+    let width = p.measure_text(name, px)[0];
+    let left = l.px([cx, 0.0])[0] - width / 2.0;
+
+    for (j, ch) in name.char_indices() {
+        let x = left + p.measure_text(&name[..j], px)[0];
+        let k = j as f32;
+        let y = l.px([0.0, 120.0 + 7.0 * (time * 3.0 - k * 0.45).sin()])[1];
+        p.draw_text([x, y], &ch.to_string())
+            .size(px)
+            .color(showcase::rainbow(time * 1.2 - k * 0.35))
+            .align(Align::Left)
+            .layer(HUD);
+    }
+}
+
+/// Title button `i`: the mode's name, its blurb and its `best` score; `lit` under the
+/// pointer. With full effects the frame shimmers.
+fn button(
+    p: &mut Painter<'_>,
+    l: &Layout,
+    i: usize,
+    best: u64,
+    lit: bool,
+    time: f32,
+    effects: Effects,
+) {
     let blurbs = [
         "60 seconds, time gems add more",
         "No clock, ends when you're stuck",
         "60 seconds, gravity turns every 15",
     ];
-    for (i, mode) in MODES.iter().enumerate() {
-        let (pos, size) = button_rect(i);
-        let lit = hover == Some(i);
-        let fill = if lit {
-            Color::rgb(0.42, 0.16, 0.24)
+
+    let cx = DESIGN_W / 2.0;
+    let (pos, size) = button_rect(i);
+    let fill = if lit {
+        Color::rgb(0.42, 0.16, 0.24)
+    } else {
+        Color::rgb(0.12, 0.09, 0.2)
+    };
+
+    p.rect_ex(
+        l.px(pos),
+        [l.len(size[0]), l.len(size[1])],
+        fill,
+        HUD,
+        BlendMode::Alpha,
+    );
+    p.rect_outline_ex(
+        l.px(pos),
+        [l.len(size[0]), l.len(size[1])],
+        l.len(2.0),
+        if effects.full() {
+            showcase::rainbow(time * 0.8 + i as f32 * 2.0)
         } else {
-            Color::rgb(0.12, 0.09, 0.2)
-        };
-        p.rect_ex(
-            l.px(pos),
-            [l.len(size[0]), l.len(size[1])],
-            fill,
-            HUD,
-            BlendMode::Alpha,
-        );
-        p.rect_outline_ex(
-            l.px(pos),
-            [l.len(size[0]), l.len(size[1])],
-            l.len(2.0),
-            if full {
-                showcase::rainbow(time * 0.8 + i as f32 * 2.0)
-            } else {
-                ACCENT
-            },
-            HUD,
-            BlendMode::Alpha,
-        );
-        text(
-            p,
-            l,
-            [cx, pos[1] + 12.0],
-            &format!("{}  {}", i + 1, mode.name()),
-            32.0,
-            Color::WHITE,
-            Align::Center,
-        );
-        let sub = if bests[i] > 0 {
-            format!("{}  ·  best {}", blurbs[i], bests[i])
-        } else {
-            blurbs[i].to_owned()
-        };
-        text(p, l, [cx, pos[1] + 54.0], &sub, 15.0, MUTED, Align::Center);
-    }
+            ACCENT
+        },
+        HUD,
+        BlendMode::Alpha,
+    );
+
+    text(
+        p,
+        l,
+        [cx, pos[1] + 12.0],
+        &format!("{}  {}", i + 1, MODES[i].name()),
+        32.0,
+        Color::WHITE,
+        Align::Center,
+    );
+
+    let sub = if best > 0 {
+        format!("{}  ·  best {}", blurbs[i], best)
+    } else {
+        blurbs[i].to_owned()
+    };
+
+    text(p, l, [cx, pos[1] + 54.0], &sub, 15.0, MUTED, Align::Center);
 }
 
 /// The game-over card over the board.
@@ -348,6 +405,7 @@ pub fn game_over(
             Align::Center,
         );
     }
+
     text(
         p,
         l,
@@ -378,6 +436,7 @@ pub fn gravity(p: &mut Painter<'_>, l: &Layout, session: &Session) {
     let Some(turn_in) = session.mode().turn_in() else {
         return;
     };
+
     let x = 40.0;
     text(p, l, [x, 520.0], "GRAVITY", 18.0, MUTED, Align::Left);
     arrow(
@@ -388,6 +447,7 @@ pub fn gravity(p: &mut Painter<'_>, l: &Layout, session: &Session) {
         36.0,
         Color::WHITE,
     );
+
     let next = if turn_in > 0.0 {
         format!("turns in {:.0} s", turn_in.ceil())
     } else {
@@ -410,6 +470,7 @@ pub fn tilt_warning(
     if turn_in > WARN_SECS || session.is_over() {
         return;
     }
+
     let next: Gravity = session.gravity().turned();
     let blink = if effects.full() {
         0.5 + 0.5 * (time * 12.0).sin()

@@ -51,85 +51,54 @@ fn main() -> Result<()> {
         .position(|a| a == "--watch-shot")
         .and_then(|i| args.get(i + 1))
         .map(Into::into);
+
     if shot.is_none() && !args.iter().any(|a| a == "--watch") {
         return play(&args, false);
     }
+
     let bot = std::thread::spawn(move || {
         let result = play(&args, true);
         if let Err(e) = &result {
             eprintln!("error: {e:#}");
         }
+
         result
     });
+
     let shown = viewer::show(shot);
     // The window closed: stop the bot if it still plays.
     insight::STOP.store(true, Ordering::Relaxed);
     let played = bot.join().expect("the bot thread does not panic");
+
     shown?;
     played
 }
 
 /// Opens the game and plays it; `watch` publishes every round to [`insight::LATEST`].
 fn play(args: &[String], watch: bool) -> Result<()> {
-    let value = |flag: &str| {
-        args.iter()
-            .position(|a| a == flag)
-            .and_then(|i| args.get(i + 1).cloned())
-    };
-    let flag = |f: &str| args.iter().any(|a| a == f);
-
-    let base = match value("--url") {
-        Some(url) => url,
-        None => serve(value("--dist").unwrap_or_else(|| "dist".into()))
-            .context("serve the web build (run `trunk build` first)")?,
-    };
-    let mode = value("--mode").unwrap_or_else(|| "rush".into());
+    let mode = value(args, "--mode").unwrap_or_else(|| "rush".into());
     if !["rush", "endless", "tilt"].contains(&mode.as_str()) {
         bail!("--mode needs rush, endless or tilt");
     }
-    let calm = if flag("--full") { "" } else { "&calm" };
-    let time = value("--time").map_or(String::new(), |t| format!("&time={t}"));
-    let secs: f32 = value("--secs").map_or(Ok(600.0), |s| s.parse())?;
-    let seed = value("--seed").map_or(String::new(), |s| format!("&seed={s}"));
+
+    let secs: f32 = value(args, "--secs").map_or(Ok(600.0), |s| s.parse())?;
     let patient = mode == "endless";
+
     // Only Endless ends when no move is left; elsewhere the board reshuffles.
-    let mobility: f32 = match value("--mobility") {
+    let mobility: f32 = match value(args, "--mobility") {
         Some(w) => w.parse().context("--mobility needs a number")?,
-        None if mode == "endless" => solver::MOBILITY,
+        None if patient => solver::MOBILITY,
         None => 0.0,
     };
 
-    let mut screen = Screen::open(
-        &format!("{base}?mode={mode}{calm}{time}{seed}"),
-        1120,
-        840,
-        flag("--visible"),
-    )?;
-    let fps = screen.fps()?;
-    println!("the page renders at {fps:.0} fps");
-    if fps < 30.0 {
-        println!("warning: the game runs slow in this browser; try --visible");
-    }
+    let mut screen = open(args, &mode)?;
+
     // Past the "Go!" banner.
     std::thread::sleep(Duration::from_millis(1500));
     let grid = locate(&mut screen)?;
     println!("board at {:?}, {:.1} px per cell", grid.origin, grid.pitch);
-    // From now on only the board is captured; `view` is the grid within that crop.
-    let side = grid.pitch * SIZE as f32;
-    let corner = [
-        grid.origin[0].max(0.0).floor(),
-        grid.origin[1].max(0.0).floor(),
-    ];
-    screen.set_clip(Some([
-        corner[0],
-        corner[1],
-        side.ceil() + 1.0,
-        side.ceil() + 1.0,
-    ]));
-    let view = Grid {
-        origin: [grid.origin[0] - corner[0], grid.origin[1] - corner[1]],
-        pitch: grid.pitch,
-    };
+
+    let view = crop_to_board(&mut screen, &grid);
 
     let start = Instant::now();
     let mut last: Option<Board> = None;
@@ -143,8 +112,7 @@ fn play(args: &[String], watch: bool) -> Result<()> {
     // Seconds spent capturing, reading, solving and clicking; and loop rounds.
     let mut spent = [0.0f32; 4];
     let mut rounds = 0u32;
-    let per_round =
-        |spent: &[f32; 4], rounds: u32| spent.map(|s| s * 1000.0 / rounds.max(1) as f32);
+
     while start.elapsed().as_secs_f32() < secs && !insight::STOP.load(Ordering::Relaxed) {
         rounds += 1;
         let t0 = Instant::now();
@@ -154,79 +122,50 @@ fn play(args: &[String], watch: bool) -> Result<()> {
         let now = Instant::now();
         spent[0] += (t1 - t0).as_secs_f32();
         spent[1] += (now - t1).as_secs_f32();
+
         if moved.elapsed().as_secs_f32() > STUCK_SECS {
             println!("no move in {STUCK_SECS} s: game over");
             break;
         }
-        // Trust a cell when two readings in a row agree and no move of the bot's is still
-        // working on it; everything else is unknown to the solver. No waiting for the
-        // whole board to rest: any move among trusted cells goes.
-        let mut trusted = [[Tile::Unknown; SIZE]; SIZE];
-        if let Some(prev) = last {
-            for y in 0..SIZE {
-                for x in 0..SIZE {
-                    if board[y][x] == prev[y][x] && now >= busy[y][x] {
-                        trusted[y][x] = board[y][x];
-                    }
-                }
-            }
-        }
+
+        let trusted = trust(&board, last.as_ref(), &busy, now);
         last = Some(board);
-        // While the game runs, a move changes the board, or something else does meanwhile.
-        // A board that reads exactly the same after the move has settled ignored it.
-        let mut over = false;
-        pending.retain(|(due, before)| {
-            if now < *due {
-                return true;
-            }
-            dead = if board == *before { dead + 1 } else { 0 };
-            over |= dead >= DEAD_MOVES;
-            false
-        });
-        if over {
+
+        if ignored(&mut pending, &mut dead, &board, now) {
             println!("the board ignores moves: game over");
             break;
         }
-        // A dimmed or covered board (game over, banners) is no place to click.
-        let seen = board
-            .iter()
-            .flatten()
-            .filter(|t| **t != Tile::Unknown)
-            .count();
+
         // Without a clock there is no hurry: wait until every cell is trusted, so the
         // prediction (and the moves it leaves open) covers the whole board.
         let settled = trusted.iter().flatten().all(|t| *t != Tile::Unknown);
-        let clear = seen * 4 >= SIZE * SIZE * 3 && (!patient || settled);
+        let clear = visible(&board) && (!patient || settled);
+
         let t2 = Instant::now();
         let ranked = if clear {
             solver::moves(&trusted, solver::LOOKAHEAD, mobility)
         } else {
             Vec::new()
         };
+
         let t3 = Instant::now();
         spent[2] += (t3 - t2).as_secs_f32();
 
         let mut plan = None;
         if let Some(&(swap @ (a, b), value)) = ranked.first() {
-            screen.click(grid.center(a[0], a[1]))?;
-            // The game reads one press per frame: two clicks in one frame would be one.
-            std::thread::sleep(CLICK_GAP);
-            screen.click(grid.center(b[0], b[1]))?;
+            click_swap(&mut screen, &grid, swap)?;
+
             spent[3] += t3.elapsed().as_secs_f32();
             moves += 1;
             moved = Instant::now();
             println!("move {moves}: {a:?} <-> {b:?}");
+
             // Leave the cells this move will change alone until they settled.
             let after = sim::play(&trusted, swap).map_or(trusted, |o| o.after);
             let until = Instant::now() + BUSY;
             pending.push((until, board));
-            for y in 0..SIZE {
-                for x in 0..SIZE {
-                    if after[y][x] != trusted[y][x] || [x, y] == a || [x, y] == b {
-                        busy[y][x] = until;
-                    }
-                }
-            }
+            mark_busy(&mut busy, &trusted, &after, swap, until);
+
             if watch {
                 let next = solver::moves(&after, 0, 0.0).first().copied();
                 plan = Some(Plan {
@@ -250,6 +189,7 @@ fn play(args: &[String], watch: bool) -> Result<()> {
             } else {
                 "no trusted move: waiting"
             };
+
             *insight::LATEST.lock().expect("the viewer does not panic") = Some(Insight {
                 crop: img,
                 view,
@@ -264,19 +204,176 @@ fn play(args: &[String], watch: bool) -> Result<()> {
             });
         }
     }
+
     println!("{moves} moves in {:.0} s", start.elapsed().as_secs_f32());
     let ms = per_round(&spent, rounds);
     println!(
         "{rounds} rounds, per round: capture {:.0} ms, read {:.1} ms, solve {:.1} ms, click {:.0} ms",
         ms[0], ms[1], ms[2], ms[3],
     );
+
     insight::FINISHED.store(true, Ordering::Relaxed);
-    if let Some(path) = value("--shot") {
+
+    if let Some(path) = value(args, "--shot") {
         screen.set_clip(None);
         std::fs::write(&path, screen.png()?)?;
         println!("final screen saved to {path}");
     }
+
     Ok(())
+}
+
+/// The argument after `flag`, if given.
+fn value(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1).cloned())
+}
+
+/// Whether `flag` is given.
+fn flag(args: &[String], flag: &str) -> bool {
+    args.iter().any(|a| a == flag)
+}
+
+/// Serves or finds the web build and opens the game in `mode` with the flags' options.
+fn open(args: &[String], mode: &str) -> Result<Screen> {
+    let base = match value(args, "--url") {
+        Some(url) => url,
+        None => serve(value(args, "--dist").unwrap_or_else(|| "dist".into()))
+            .context("serve the web build (run `trunk build` first)")?,
+    };
+
+    let calm = if flag(args, "--full") { "" } else { "&calm" };
+    let time = value(args, "--time").map_or(String::new(), |t| format!("&time={t}"));
+    let seed = value(args, "--seed").map_or(String::new(), |s| format!("&seed={s}"));
+
+    let mut screen = Screen::open(
+        &format!("{base}?mode={mode}{calm}{time}{seed}"),
+        1120,
+        840,
+        flag(args, "--visible"),
+    )?;
+
+    let fps = screen.fps()?;
+    println!("the page renders at {fps:.0} fps");
+    if fps < 30.0 {
+        println!("warning: the game runs slow in this browser; try --visible");
+    }
+
+    Ok(screen)
+}
+
+/// From now on, captures only the board; returns the grid within that crop.
+fn crop_to_board(screen: &mut Screen, grid: &Grid) -> Grid {
+    let side = grid.pitch * SIZE as f32;
+    let corner = [
+        grid.origin[0].max(0.0).floor(),
+        grid.origin[1].max(0.0).floor(),
+    ];
+
+    screen.set_clip(Some([
+        corner[0],
+        corner[1],
+        side.ceil() + 1.0,
+        side.ceil() + 1.0,
+    ]));
+
+    Grid {
+        origin: [grid.origin[0] - corner[0], grid.origin[1] - corner[1]],
+        pitch: grid.pitch,
+    }
+}
+
+/// The cells the bot relies on: read alike twice in a row and no longer `busy` with one of
+/// its own moves. Everything else is unknown to the solver; no waiting for the whole board
+/// to rest, any move among trusted cells goes.
+fn trust(
+    board: &Board,
+    last: Option<&Board>,
+    busy: &[[Instant; SIZE]; SIZE],
+    now: Instant,
+) -> Board {
+    let mut trusted = [[Tile::Unknown; SIZE]; SIZE];
+    let Some(prev) = last else {
+        return trusted;
+    };
+
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            if board[y][x] == prev[y][x] && now >= busy[y][x] {
+                trusted[y][x] = board[y][x];
+            }
+        }
+    }
+
+    trusted
+}
+
+/// Checks the `pending` moves that have settled by `now` against `board` and counts the
+/// ones in a row that changed nothing in `dead`; true once the board ignores moves.
+///
+/// While the game runs, a move changes the board, or something else does meanwhile. A
+/// board that reads exactly the same after the move has settled ignored it.
+fn ignored(
+    pending: &mut Vec<(Instant, Board)>,
+    dead: &mut u32,
+    board: &Board,
+    now: Instant,
+) -> bool {
+    let mut over = false;
+    pending.retain(|(due, before)| {
+        if now < *due {
+            return true;
+        }
+
+        *dead = if board == before { *dead + 1 } else { 0 };
+        over |= *dead >= DEAD_MOVES;
+        false
+    });
+
+    over
+}
+
+/// Whether enough of the board reads as gems to click on: a dimmed or covered board (game
+/// over, banners) is no place to click.
+fn visible(board: &Board) -> bool {
+    let seen = board
+        .iter()
+        .flatten()
+        .filter(|t| **t != Tile::Unknown)
+        .count();
+
+    seen * 4 >= SIZE * SIZE * 3
+}
+
+/// Clicks the two cells of `swap`.
+fn click_swap(screen: &mut Screen, grid: &Grid, (a, b): sim::Swap) -> Result<()> {
+    screen.click(grid.center(a[0], a[1]))?;
+    // The game reads one press per frame: two clicks in one frame would be one.
+    std::thread::sleep(CLICK_GAP);
+    screen.click(grid.center(b[0], b[1]))
+}
+
+/// Keeps the cells `swap` moves, and those it is expected to change, off limits `until`.
+fn mark_busy(
+    busy: &mut [[Instant; SIZE]; SIZE],
+    trusted: &Board,
+    after: &Board,
+    (a, b): sim::Swap,
+    until: Instant,
+) {
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            if after[y][x] != trusted[y][x] || [x, y] == a || [x, y] == b {
+                busy[y][x] = until;
+            }
+        }
+    }
+}
+
+/// Milliseconds per round for each of the `spent` totals.
+fn per_round(spent: &[f32; 4], rounds: u32) -> [f32; 4] {
+    spent.map(|s| s * 1000.0 / rounds.max(1) as f32)
 }
 
 /// Finds the board, retrying while effects still cover it.
@@ -287,7 +384,9 @@ fn locate(screen: &mut Screen) -> Result<Grid> {
             Ok(g) => return Ok(g),
             Err(e) => error = Some(e),
         }
+
         std::thread::sleep(Duration::from_millis(100));
     }
+
     Err(error.expect("tried at least once")).context("no board on screen")
 }

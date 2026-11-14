@@ -21,7 +21,7 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// The layout for a window of `w` x `h` pixels.
+    /// The layout for a window of `w` × `h` pixels.
     pub fn fit(w: f32, h: f32) -> Self {
         let scale = (w / DESIGN_W).min(h / DESIGN_H);
         Self {
@@ -95,10 +95,12 @@ mod tests {
     #[test]
     fn cells_round_trip() {
         let l = Layout::fit(1920.0, 1080.0);
+
         for p in [Pos::new(0, 0), Pos::new(7, 7), Pos::new(3, 5)] {
             let c = Layout::cell_center([p.x as f32, p.y as f32]);
             assert_eq!(l.cell_at(l.px(c)), Some(p));
         }
+
         assert_eq!(l.cell_at(l.px([BOARD[0] - 1.0, BOARD[1]])), None);
         assert_eq!(
             l.cell_at(l.px([BOARD[0] + BOARD_SIZE + 1.0, BOARD[1]])),

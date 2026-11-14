@@ -9,6 +9,9 @@ use crate::tile::Tile;
 /// A swap of two neighbouring cells, as (x, y) pairs.
 pub type Swap = ([usize; 2], [usize; 2]);
 
+/// A straight run of matching gems: its cells, and whether it is horizontal.
+type Run = (Vec<[usize; 2]>, bool);
+
 /// The predicted result of a swap.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Outcome {
@@ -37,9 +40,11 @@ pub fn play(board: &Board, (a, b): Swap) -> Option<Outcome> {
     if ta == Tile::Unknown || tb == Tile::Unknown {
         return None;
     }
+
     let mut now = *board;
     set(&mut now, a, tb);
     set(&mut now, b, ta);
+
     let mut holes = [[false; SIZE]; SIZE];
     let mut gain = match (ta, tb) {
         (Tile::Wild, Tile::Wild) => {
@@ -51,37 +56,62 @@ pub fn play(board: &Board, (a, b): Swap) -> Option<Outcome> {
                 .count() as u32
         }
         (Tile::Wild, other) | (other, Tile::Wild) => {
-            let mut n = 0;
-            for (y, row) in now.iter().enumerate() {
-                for (x, t) in row.iter().enumerate() {
-                    if t.matches(other) || *t == Tile::Wild && ([x, y] == a || [x, y] == b) {
-                        holes[y][x] = true;
-                        n += 1;
-                    }
-                }
-            }
-            30 + n
+            30 + clear_colour(&now, other, (a, b), &mut holes)
         }
         _ => {
             let groups = groups(&now, &[a, b]);
             if groups.is_empty() {
                 return None;
             }
+
             clear(&mut now, &mut holes, &groups)
         }
     };
+
     fall(&mut now, &holes);
-    // Cascades among what is known.
+
+    gain += cascades(&mut now);
+
+    Some(Outcome { gain, after: now })
+}
+
+/// Marks every gem that matches `colour` as a hole, plus the wild gem the player swapped
+/// in (`swap`); returns how many.
+fn clear_colour(
+    board: &Board,
+    colour: Tile,
+    (a, b): Swap,
+    holes: &mut [[bool; SIZE]; SIZE],
+) -> u32 {
+    let mut n = 0;
+    for (y, row) in board.iter().enumerate() {
+        for (x, t) in row.iter().enumerate() {
+            if t.matches(colour) || *t == Tile::Wild && ([x, y] == a || [x, y] == b) {
+                holes[y][x] = true;
+                n += 1;
+            }
+        }
+    }
+
+    n
+}
+
+/// Clears the cascades among what is known on `board`, each step weighted by its depth;
+/// returns their value.
+fn cascades(board: &mut Board) -> u32 {
+    let mut gain = 0;
     for depth in 2.. {
-        let groups = groups(&now, &[]);
+        let groups = groups(board, &[]);
         if groups.is_empty() {
             break;
         }
+
         let mut holes = [[false; SIZE]; SIZE];
-        gain += depth * clear(&mut now, &mut holes, &groups);
-        fall(&mut now, &holes);
+        gain += depth * clear(board, &mut holes, &groups);
+        fall(board, &holes);
     }
-    Some(Outcome { gain, after: now })
+
+    gain
 }
 
 /// The tile at `p`.
@@ -101,12 +131,14 @@ fn clear(board: &mut Board, holes: &mut [[bool; SIZE]; SIZE], groups: &[Group]) 
             holes[c[1]][c[0]] = true;
         }
     }
+
     for g in groups {
         if let Some((tile, p)) = g.reward {
             holes[p[1]][p[0]] = false;
             set(board, p, tile);
         }
     }
+
     groups.iter().map(|g| g.value).sum()
 }
 
@@ -118,6 +150,7 @@ fn fall(board: &mut Board, holes: &[[bool; SIZE]; SIZE]) {
             .filter(|&y| !holes[y][x])
             .map(|y| board[y][x])
             .collect();
+
         for y in (0..SIZE).rev() {
             board[y][x] = kept.get(SIZE - 1 - y).copied().unwrap_or(Tile::Unknown);
         }
@@ -127,27 +160,55 @@ fn fall(board: &mut Board, holes: &[[bool; SIZE]; SIZE]) {
 /// Every line of three or more on `board`, connected lines joined; `moved` are the cells
 /// the player swapped (special gems appear there).
 fn groups(board: &Board, moved: &[[usize; 2]]) -> Vec<Group> {
-    // Straight runs: cells and whether horizontal.
-    let mut runs: Vec<(Vec<[usize; 2]>, bool)> = Vec::new();
+    let runs = runs(board);
+
+    joined(&runs)
+        .into_iter()
+        .map(|members| group(board, &members, moved))
+        .collect()
+}
+
+/// Every straight run of three or more matching gems.
+fn runs(board: &Board) -> Vec<Run> {
+    let mut runs = Vec::new();
+
     for horizontal in [true, false] {
         for line in 0..SIZE {
             let cell = |i: usize| if horizontal { [i, line] } else { [line, i] };
-            let mut start = 0;
-            while start < SIZE {
-                let t = at(board, cell(start));
-                let mut end = start + 1;
-                while end < SIZE && at(board, cell(end)).matches(t) {
-                    end += 1;
-                }
-                if end - start >= 3 && matches!(t, Tile::Gem(_)) {
-                    runs.push(((start..end).map(cell).collect(), horizontal));
-                }
-                start = end;
-            }
+            let along = runs_along(board, cell);
+            runs.extend(along.into_iter().map(|cells| (cells, horizontal)));
         }
     }
-    // Join runs that share a cell.
+
+    runs
+}
+
+/// The runs of three or more matching gems along one row or column; `cell` turns a
+/// position along it into a cell.
+fn runs_along(board: &Board, cell: impl Fn(usize) -> [usize; 2]) -> Vec<Vec<[usize; 2]>> {
+    let mut runs = Vec::new();
+    let mut start = 0;
+
+    while start < SIZE {
+        let t = at(board, cell(start));
+        let end = (start + 1..SIZE)
+            .find(|&i| !at(board, cell(i)).matches(t))
+            .unwrap_or(SIZE);
+
+        if end - start >= 3 && matches!(t, Tile::Gem(_)) {
+            runs.push((start..end).map(&cell).collect());
+        }
+
+        start = end;
+    }
+
+    runs
+}
+
+/// Runs that share a cell, joined: the runs of each group.
+fn joined(runs: &[Run]) -> Vec<Vec<&Run>> {
     let mut label: Vec<usize> = (0..runs.len()).collect();
+
     for i in 0..runs.len() {
         for j in 0..i {
             if runs[i].0.iter().any(|c| runs[j].0.contains(c)) {
@@ -159,45 +220,55 @@ fn groups(board: &Board, moved: &[[usize; 2]]) -> Vec<Group> {
             }
         }
     }
+
     let mut roots = label.clone();
     roots.sort_unstable();
     roots.dedup();
+
     roots
         .into_iter()
         .map(|root| {
-            let members: Vec<&(Vec<[usize; 2]>, bool)> = runs
-                .iter()
+            runs.iter()
                 .zip(&label)
                 .filter(|(_, l)| **l == root)
                 .map(|(r, _)| r)
-                .collect();
-            let mut cells: Vec<[usize; 2]> = members.iter().flat_map(|r| r.0.clone()).collect();
-            cells.sort_unstable();
-            cells.dedup();
-            let longest = members.iter().map(|r| r.0.len()).max().unwrap_or(0);
-            let both = members.iter().any(|r| r.1) && members.iter().any(|r| !r.1);
-            let color = at(board, cells[0]);
-            let (bonus, reward) = if longest >= 5 {
-                (10, Some(Tile::Wild))
-            } else if both {
-                (6, Some(color))
-            } else if longest == 4 {
-                (4, Some(color))
-            } else {
-                (0, None)
-            };
-            let spawn = moved
-                .iter()
-                .copied()
-                .find(|m| cells.contains(m))
-                .unwrap_or(cells[cells.len() / 2]);
-            Group {
-                value: cells.len() as u32 + bonus,
-                reward: reward.map(|t| (t, spawn)),
-                cells,
-            }
+                .collect()
         })
         .collect()
+}
+
+/// The group the joined runs `members` form: its cells, its value, and the special gem it
+/// leaves where the player moved (or in its middle).
+fn group(board: &Board, members: &[&Run], moved: &[[usize; 2]]) -> Group {
+    let mut cells: Vec<[usize; 2]> = members.iter().flat_map(|r| r.0.clone()).collect();
+    cells.sort_unstable();
+    cells.dedup();
+
+    let longest = members.iter().map(|r| r.0.len()).max().unwrap_or(0);
+    let both = members.iter().any(|r| r.1) && members.iter().any(|r| !r.1);
+    let color = at(board, cells[0]);
+
+    let (bonus, reward) = if longest >= 5 {
+        (10, Some(Tile::Wild))
+    } else if both {
+        (6, Some(color))
+    } else if longest == 4 {
+        (4, Some(color))
+    } else {
+        (0, None)
+    };
+
+    let spawn = moved
+        .iter()
+        .copied()
+        .find(|m| cells.contains(m))
+        .unwrap_or(cells[cells.len() / 2]);
+
+    Group {
+        value: cells.len() as u32 + bonus,
+        reward: reward.map(|t| (t, spawn)),
+        cells,
+    }
 }
 
 #[cfg(test)]
@@ -207,6 +278,7 @@ pub(crate) mod tests {
     /// A board from rows of digits (`W` wild); anything else is unknown.
     pub fn parse(rows: &[&str]) -> Board {
         let mut b = [[Tile::Unknown; SIZE]; SIZE];
+
         for (y, row) in rows.iter().enumerate() {
             for (x, ch) in row.chars().enumerate() {
                 b[y][x] = match ch {
@@ -216,6 +288,7 @@ pub(crate) mod tests {
                 };
             }
         }
+
         b
     }
 
@@ -225,8 +298,10 @@ pub(crate) mod tests {
             "4???????", "1???????", "2???????", "3???????", "5???????", "0???????", "0???????",
             "10??????",
         ]);
+
         let out = play(&b, ([0, 7], [1, 7])).expect("valid");
         assert_eq!(out.gain, 3);
+
         // Column 0 lost (0,5), (0,6) and the swapped-in 0 at (0,7): the rest dropped three.
         let col: Vec<Tile> = (0..SIZE).map(|y| out.after[y][0]).collect();
         assert_eq!(&col[..3], &[Tile::Unknown; 3]);
@@ -240,6 +315,7 @@ pub(crate) mod tests {
             "????????", "????????", "????????", "????????", "????????", "????????", "????????",
             "00010???",
         ]);
+
         let out = play(&b, ([3, 7], [4, 7])).expect("valid");
         assert_eq!(out.gain, 4 + 4);
         assert_eq!(out.after[7][3], Tile::Gem(0));
@@ -252,6 +328,7 @@ pub(crate) mod tests {
             "????????", "????????", "????????", "????????", "1???????", "15??????", "545?????",
             "1???????",
         ]);
+
         let out = play(&b, ([1, 5], [1, 6])).expect("valid");
         assert_eq!(out.gain, 3 + 2 * 3);
         assert!((5..SIZE).all(|y| out.after[y][0] == Tile::Unknown));

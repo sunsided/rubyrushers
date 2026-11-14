@@ -21,6 +21,7 @@ impl Rng {
         x ^= x << 25;
         x ^= x >> 27;
         self.0 = x;
+
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
 

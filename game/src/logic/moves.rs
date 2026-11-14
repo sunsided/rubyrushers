@@ -11,14 +11,18 @@ pub fn is_valid(board: &Board, a: Pos, b: Pos) -> bool {
     let (Some(ga), Some(gb)) = (board.get(a), board.get(b)) else {
         return false;
     };
+
     if !a.adjacent(b) {
         return false;
     }
+
     if ga.power == Power::Wild || gb.power == Power::Wild {
         return true;
     }
+
     let mut after = board.clone();
     after.swap(a, b);
+
     matcher::lines_up_at(&after, a) || matcher::lines_up_at(&after, b)
 }
 
@@ -37,18 +41,19 @@ mod tests {
 
     #[test]
     fn valid_swaps_match_brute_force() {
+        let neighbours: Vec<(Pos, Pos)> = Pos::all()
+            .flat_map(|a| [(a, Pos::new(a.x + 1, a.y)), (a, Pos::new(a.x, a.y + 1))])
+            .filter(|(_, b)| b.on_board())
+            .collect();
+
         for seed in 0..20 {
             let board = Board::random(&mut Rng::new(seed));
-            for a in Pos::all() {
-                for b in [Pos::new(a.x + 1, a.y), Pos::new(a.x, a.y + 1)] {
-                    if !b.on_board() {
-                        continue;
-                    }
-                    let mut after = board.clone();
-                    after.swap(a, b);
-                    let brute = !matcher::find(&after, &[]).is_empty();
-                    assert_eq!(is_valid(&board, a, b), brute, "seed {seed} {a:?}-{b:?}");
-                }
+
+            for &(a, b) in &neighbours {
+                let mut after = board.clone();
+                after.swap(a, b);
+                let brute = !matcher::find(&after, &[]).is_empty();
+                assert_eq!(is_valid(&board, a, b), brute, "seed {seed} {a:?}-{b:?}");
             }
         }
     }

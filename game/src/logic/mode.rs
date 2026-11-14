@@ -52,6 +52,7 @@ impl Mode {
         if let Self::Tilt { turn_in, .. } = self {
             *turn_in = (*turn_in - dt).max(0.0);
         }
+
         match self.remaining_mut() {
             Some(remaining) => {
                 *remaining = (*remaining - dt).max(0.0);

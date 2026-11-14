@@ -40,31 +40,40 @@ pub fn moves(board: &Board, ahead: u32, mobility: f32) -> Vec<(Swap, Value)> {
     let mut out: Vec<(Swap, Value)> = swaps()
         .filter_map(|swap| {
             let o = sim::play(board, swap)?;
-            let (next, left) = if ahead > 0 {
-                let follow = moves(&o.after, ahead - 1, mobility);
-                (
-                    follow.first().map_or(0.0, |m| m.1.total),
-                    Some(follow.len()),
-                )
-            } else {
-                (0.0, None)
-            };
-            let open = left.map_or(0.0, |n| mobility * (1.0 + n as f32).ln());
-            let value = Value {
-                gain: o.gain,
-                total: o.gain as f32 + DISCOUNT * next + open,
-                left,
-                depth: swap.1[1],
-            };
-            Some((swap, value))
+            Some((swap, value(swap, &o, ahead, mobility)))
         })
         .collect();
+
     out.sort_by(|a, b| {
         b.1.total
             .total_cmp(&a.1.total)
             .then(b.1.depth.cmp(&a.1.depth))
     });
+
     out
+}
+
+/// What `swap` with the predicted `outcome` is worth, looking `ahead` moves further and
+/// weighing the moves it leaves open by `mobility`.
+fn value(swap: Swap, outcome: &sim::Outcome, ahead: u32, mobility: f32) -> Value {
+    let (next, left) = if ahead > 0 {
+        let follow = moves(&outcome.after, ahead - 1, mobility);
+        (
+            follow.first().map_or(0.0, |m| m.1.total),
+            Some(follow.len()),
+        )
+    } else {
+        (0.0, None)
+    };
+
+    let open = left.map_or(0.0, |n| mobility * (1.0 + n as f32).ln());
+
+    Value {
+        gain: outcome.gain,
+        total: outcome.gain as f32 + DISCOUNT * next + open,
+        left,
+        depth: swap.1[1],
+    }
 }
 
 /// The best swap, looking [`LOOKAHEAD`] moves ahead, without minding mobility.
@@ -100,6 +109,7 @@ mod tests {
     fn prefers_bigger_matches() {
         // Swapping (2, 1) up makes five in row 0.
         let b = parse(&["001003", "220445", "131313"]);
+
         let (swap, value) = moves(&b, 0, 0.0)[0];
         assert_eq!(swap, ([2, 0], [2, 1]));
         assert_eq!(value.gain, 15);
@@ -115,6 +125,7 @@ mod tests {
     fn prefers_lower_moves_on_a_tie() {
         let b = parse(&["0010", "2345", "4523", "5545"]);
         assert_eq!(moves(&b, 0, 0.0)[0].0, ([2, 3], [3, 3]));
+
         // Looking ahead, the top move wins: it leaves the bottom one standing, while the
         // bottom one drops the top row out of reach.
         assert_eq!(best(&b), Some(([2, 0], [3, 0])));
@@ -129,8 +140,10 @@ mod tests {
             "????????", "????????", "????????", "??0?????", "??5?????", "??5?????", "??45?4??",
             "00100344",
         ]);
+
         let greedy = moves(&b, 0, 0.0)[0].0;
         assert_eq!(greedy, ([5, 6], [5, 7]));
+
         assert_eq!(best(&b), Some(([2, 6], [3, 6])));
         assert!(b.iter().flatten().any(|t| *t == Tile::Unknown));
     }
@@ -157,10 +170,12 @@ mod tests {
         let b = busy_board();
         let all = moves(&b, 1, 0.0);
         let most = all.iter().filter_map(|m| m.1.left).max();
+
         assert!(
             all.iter().any(|m| m.1.left != most),
             "the board must offer a choice"
         );
+
         assert_eq!(moves(&b, 1, 1000.0)[0].1.left, most);
     }
 }

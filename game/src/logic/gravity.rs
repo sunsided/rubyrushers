@@ -78,6 +78,7 @@ mod tests {
             assert!(!beyond.on_board(), "{g:?}");
             assert_eq!(g.lane(g.cell(5, 2)), 5);
         }
+
         assert_eq!(Gravity::Right.turned(), Gravity::Down);
     }
 }

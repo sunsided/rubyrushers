@@ -9,7 +9,7 @@ use super::effects::Effects;
 use super::gem_art::BASE;
 use super::layout::{BOARD, BOARD_SIZE, DESIGN_H, DESIGN_W, Layout};
 use crate::logic::score;
-use crate::logic::{Clear, Gem, Piece, Power};
+use crate::logic::{Clear, Gem, Piece, Pos, Power};
 
 /// Layer of the background motes, above the background gradient.
 const BACK: Layer = Layer(0);
@@ -151,62 +151,87 @@ impl Fx {
     /// Effects for gems being cleared.
     pub fn cleared(&mut self, clear: &Clear, rng: &mut Rng, effects: Effects) {
         for &(gem, pos) in &clear.cleared {
-            self.vanishing.push(Vanish { gem, pos, age: 0.0 });
-            let color = if gem.power == Power::Wild {
-                Color::WHITE
-            } else {
-                gem_color(gem.color)
-            };
-            let n = match (effects, gem.power) {
-                (Effects::Calm, _) => 2,
-                (Effects::Full, Power::None) => 12,
-                (Effects::Full, _) => 32,
-            };
-            self.sparks(center(pos), color, n, rng);
-            if effects.full() {
-                // Deeper cascades burn brighter.
-                let size = 50.0 + 8.0 * clear.cascade.min(6) as f32;
-                self.push(Particle {
-                    pos: center(pos),
-                    vel: [0.0; 2],
-                    age: 0.0,
-                    ttl: 0.35,
-                    color,
-                    size,
-                    shape: Shape::Flash,
-                });
-            }
+            self.vanish(gem, pos, clear.cascade, rng, effects);
         }
+
         for (gem, _) in &clear.created {
             self.born.push((gem.id, 0.0));
         }
+
         for (power, at, reach) in &clear.blasts {
-            let c = center([at.x as f32, at.y as f32]);
-            match power {
-                Power::Bomb => {
-                    self.ring(c, Color::rgb(1.0, 0.7, 0.3), 120.0, 0.45);
-                    self.shake = self.shake.max(7.0);
-                }
-                Power::Cross => {
-                    self.beam([BOARD[0], c[1]], [BOARD[0] + BOARD_SIZE, c[1]], 22.0);
-                    self.beam([c[0], BOARD[1]], [c[0], BOARD[1] + BOARD_SIZE], 22.0);
-                    self.shake = self.shake.max(9.0);
-                }
-                Power::Wild => {
-                    for p in reach {
-                        self.beam(c, center([p.x as f32, p.y as f32]), 6.0);
-                    }
-                    self.ring(c, Color::WHITE, 160.0, 0.6);
-                    self.shake = self.shake.max(12.0);
-                }
-                Power::None => {}
-            }
+            self.blast(*power, center([at.x as f32, at.y as f32]), reach);
         }
+
+        self.popups_for(clear);
+    }
+
+    /// Gem `gem` at cell `pos` vanishing in a burst of sparks; with full effects, a flash
+    /// that burns brighter in deeper cascades.
+    fn vanish(&mut self, gem: Gem, pos: [f32; 2], cascade: u32, rng: &mut Rng, effects: Effects) {
+        self.vanishing.push(Vanish { gem, pos, age: 0.0 });
+
+        let color = if gem.power == Power::Wild {
+            Color::WHITE
+        } else {
+            gem_color(gem.color)
+        };
+
+        let n = match (effects, gem.power) {
+            (Effects::Calm, _) => 2,
+            (Effects::Full, Power::None) => 12,
+            (Effects::Full, _) => 32,
+        };
+
+        self.sparks(center(pos), color, n, rng);
+
+        if effects.full() {
+            // Deeper cascades burn brighter.
+            let size = 50.0 + 8.0 * cascade.min(6) as f32;
+            self.push(Particle {
+                pos: center(pos),
+                vel: [0.0; 2],
+                age: 0.0,
+                ttl: 0.35,
+                color,
+                size,
+                shape: Shape::Flash,
+            });
+        }
+    }
+
+    /// A special gem of `power` going off at design point `c`, reaching the cells `reach`.
+    fn blast(&mut self, power: Power, c: [f32; 2], reach: &[Pos]) {
+        match power {
+            Power::Bomb => {
+                self.ring(c, Color::rgb(1.0, 0.7, 0.3), 120.0, 0.45);
+                self.shake = self.shake.max(7.0);
+            }
+            Power::Cross => {
+                self.beam([BOARD[0], c[1]], [BOARD[0] + BOARD_SIZE, c[1]], 22.0);
+                self.beam([c[0], BOARD[1]], [c[0], BOARD[1] + BOARD_SIZE], 22.0);
+                self.shake = self.shake.max(9.0);
+            }
+            Power::Wild => {
+                for p in reach {
+                    self.beam(c, center([p.x as f32, p.y as f32]), 6.0);
+                }
+
+                self.ring(c, Color::WHITE, 160.0, 0.6);
+                self.shake = self.shake.max(12.0);
+            }
+            Power::None => {}
+        }
+    }
+
+    /// The texts a clear pops up: time added, the points over the cleared gems, the
+    /// speed bonus, and the cascade count in the middle of the board.
+    fn popups_for(&mut self, clear: &Clear) {
         if clear.time_added > 0.0 {
             let secs = (clear.time_added * 10.0).round() / 10.0;
             let at = [BOARD_MID[0], BOARD[1] + BOARD_SIZE * 0.35];
             self.popup(format!("+{secs} s"), at, 40.0, Color::rgb(0.5, 1.0, 0.9));
         }
+
         let n = clear.cleared.len().max(1) as f32;
         let mid = clear.cleared.iter().fold([0.0, 0.0], |acc, (_, p)| {
             let c = center(*p);
@@ -214,16 +239,19 @@ impl Fx {
         });
         let size = 24.0 + 4.0 * clear.cascade.min(6) as f32;
         self.popup(clear.points.to_string(), mid, size, Color::WHITE);
+
         if clear.cascade == 1 && clear.speed > 0 {
             let text = format!("Speed x{}", score::speed_factor(clear.speed));
             let at = [mid[0], mid[1] - 34.0];
             self.popup(text, at, 22.0, Color::rgb(1.0, 0.45, 0.5));
         }
+
         if clear.cascade >= 2 {
             let size = 36.0 + 6.0 * clear.cascade.min(6) as f32;
             let text = format!("Cascade x{}", clear.cascade);
             self.popups.retain(|p| !p.cascade);
             self.popup(text, BOARD_MID, size, Color::rgb(1.0, 0.85, 0.3));
+
             if let Some(last) = self.popups.last_mut() {
                 last.cascade = true;
             }
@@ -311,8 +339,27 @@ impl Fx {
         effects: Effects,
         pieces: impl Iterator<Item = Piece>,
     ) {
+        self.move_particles(dt);
+        self.age(dt, effects);
+
+        let pieces: Vec<Piece> = pieces.collect();
+        self.track_falls(&pieces);
+        self.shake = (self.shake - dt * 40.0).max(0.0);
+
+        if effects.full() {
+            self.ambient(dt, rng, &pieces);
+        } else {
+            self.particles
+                .retain(|p| !matches!(p.shape, Shape::Glint | Shape::Mote));
+        }
+    }
+
+    /// Moves the particles on by `dt` and drops the ones that are done: sparks fall,
+    /// motes drift, everything else stays put.
+    fn move_particles(&mut self, dt: f32) {
         for p in &mut self.particles {
             p.age += dt;
+
             match p.shape {
                 Shape::Dot => {
                     p.vel[1] += 900.0 * dt;
@@ -326,45 +373,55 @@ impl Fx {
                 Shape::Ring | Shape::Beam(_) | Shape::Glint | Shape::Flash => {}
             }
         }
+
         self.particles.retain(|p| p.age < p.ttl);
+    }
+
+    /// Ages popups (rising with full effects), vanishing gems, new gems and landings by
+    /// `dt`, and drops the ones that are done.
+    fn age(&mut self, dt: f32, effects: Effects) {
         for p in &mut self.popups {
             p.age += dt;
+
             if effects.full() {
                 p.pos[1] -= 40.0 * dt;
             }
         }
+
         self.popups.retain(|p| p.age < 1.1);
+
         for v in &mut self.vanishing {
             v.age += dt;
         }
+
         self.vanishing.retain(|v| v.age < VANISH_SECS);
+
         for b in &mut self.born {
             b.1 += dt;
         }
+
         self.born.retain(|b| b.1 < BORN_SECS);
+
         for l in &mut self.landed {
             l.1 += dt;
         }
+
         self.landed.retain(|l| l.1 < LAND_SECS);
-        let pieces: Vec<Piece> = pieces.collect();
-        for q in &pieces {
+    }
+
+    /// Notes which gems just landed (they were falling and now rest) and which fall now.
+    fn track_falls(&mut self, pieces: &[Piece]) {
+        for q in pieces {
             if q.speed == 0.0 && self.falling.contains(&q.gem.id) {
                 self.landed.push((q.gem.id, 0.0));
             }
         }
+
         self.falling = pieces
             .iter()
             .filter(|q| q.speed > 0.0)
             .map(|q| q.gem.id)
             .collect();
-        self.shake = (self.shake - dt * 40.0).max(0.0);
-
-        if effects.full() {
-            self.ambient(dt, rng, &pieces);
-        } else {
-            self.particles
-                .retain(|p| !matches!(p.shape, Shape::Glint | Shape::Mote));
-        }
     }
 
     /// Glints on resting gems and motes behind the board.
@@ -372,6 +429,7 @@ impl Fx {
         // About three glints a second across the board.
         if rng.next_f32() < dt * 3.0 {
             let resting: Vec<&Piece> = pieces.iter().filter(|q| q.speed == 0.0).collect();
+
             if !resting.is_empty() {
                 let q = resting[rng.range_usize(0..resting.len())];
                 let c = center(q.pos);
@@ -387,6 +445,7 @@ impl Fx {
                 });
             }
         }
+
         if rng.next_f32() < dt * 6.0 {
             self.push(Particle {
                 pos: [rng.next_f32() * DESIGN_W, DESIGN_H + 10.0],
@@ -405,6 +464,7 @@ impl Fx {
         if self.shake <= 0.0 || !effects.full() {
             return [0.0; 2];
         }
+
         [
             (rng.next_f32() * 2.0 - 1.0) * self.shake,
             (rng.next_f32() * 2.0 - 1.0) * self.shake,
@@ -435,91 +495,105 @@ impl Fx {
     /// Draws particles and popups.
     pub fn draw(&self, p: &mut Painter<'_>, layout: &Layout, effects: Effects) {
         for q in &self.particles {
-            let k = q.age / q.ttl;
-            let fade = 1.0 - k;
-            match q.shape {
-                Shape::Dot => {
-                    let r = layout.len(q.size * (1.0 - 0.5 * k));
-                    let head = layout.px(q.pos);
-                    if effects.full() {
-                        // A streak behind it, as if lit up by its own speed.
-                        let tail =
-                            layout.px([q.pos[0] - q.vel[0] * 0.035, q.pos[1] - q.vel[1] * 0.035]);
-                        p.line_ex(
-                            tail,
-                            head,
-                            r * 1.2,
-                            q.color.with_alpha(fade * 0.6),
-                            FRONT,
-                            BlendMode::Additive,
-                        );
-                    }
-                    p.circle_ex(head, r, 0.0, q.color.with_alpha(fade), FRONT);
-                }
-                Shape::Flash => super::scene::soft_disc(
-                    p,
-                    layout.px(q.pos),
-                    layout.len(q.size * (0.6 + 0.6 * easing::out_cubic(k))),
-                    q.color.with_alpha(0.5 * fade * fade),
-                    FRONT,
-                ),
-                Shape::Ring => p.circle_ex(
-                    layout.px(q.pos),
-                    layout.len(q.size * (0.2 + 0.8 * k)),
-                    layout.len(6.0 * fade + 1.0),
-                    q.color.with_alpha(fade),
-                    FRONT,
-                ),
-                Shape::Beam(to) => p.line_ex(
-                    layout.px(q.pos),
-                    layout.px(to),
-                    layout.len(q.size * fade),
-                    q.color.with_alpha(fade * 0.8),
-                    FRONT,
-                    BlendMode::Additive,
-                ),
-                Shape::Glint => {
-                    // Grows and shrinks again: two crossed thin rays.
-                    let s = layout.len(q.size * (1.0 - (2.0 * k - 1.0).abs()));
-                    let c = layout.px(q.pos);
-                    let w = layout.len(1.6);
-                    let color = q.color.with_alpha(0.9);
-                    let add = BlendMode::Additive;
-                    p.line_ex([c[0] - s, c[1]], [c[0] + s, c[1]], w, color, FRONT, add);
-                    p.line_ex([c[0], c[1] - s], [c[0], c[1] + s], w, color, FRONT, add);
-                }
-                Shape::Mote => p.circle_ex(
-                    layout.px(q.pos),
-                    layout.len(q.size),
-                    0.0,
-                    q.color.with_alpha(0.25),
-                    BACK,
-                ),
-            }
+            draw_particle(p, layout, q, effects);
         }
+
         for q in &self.popups {
-            let alpha = (1.0 - (q.age - 0.6).max(0.0) / 0.5).clamp(0.0, 1.0);
-            let pop = if effects.full() {
-                0.7 + 0.3 * easing::out_back((q.age / 0.2).min(1.0))
-            } else {
-                1.0
-            };
-            let size = layout.len(q.size * pop);
-            let pos = layout.px(q.pos);
-            let shadow = [
-                pos[0] + layout.len(2.0),
-                pos[1] - size / 2.0 + layout.len(2.0),
-            ];
-            p.draw_text(shadow, &q.text)
-                .size(size)
-                .align(Align::Center)
-                .color(Color::BLACK.with_alpha(alpha * 0.6))
-                .layer(TEXT);
-            p.draw_text([pos[0], pos[1] - size / 2.0], &q.text)
-                .size(size)
-                .align(Align::Center)
-                .color(q.color.with_alpha(alpha))
-                .layer(TEXT);
+            draw_popup(p, layout, q, effects);
         }
     }
+}
+
+/// Draws particle `q`; with full effects, sparks trail a streak.
+fn draw_particle(p: &mut Painter<'_>, layout: &Layout, q: &Particle, effects: Effects) {
+    let k = q.age / q.ttl;
+    let fade = 1.0 - k;
+
+    match q.shape {
+        Shape::Dot => {
+            let r = layout.len(q.size * (1.0 - 0.5 * k));
+            let head = layout.px(q.pos);
+
+            if effects.full() {
+                // A streak behind it, as if lit up by its own speed.
+                let tail = layout.px([q.pos[0] - q.vel[0] * 0.035, q.pos[1] - q.vel[1] * 0.035]);
+                p.line_ex(
+                    tail,
+                    head,
+                    r * 1.2,
+                    q.color.with_alpha(fade * 0.6),
+                    FRONT,
+                    BlendMode::Additive,
+                );
+            }
+
+            p.circle_ex(head, r, 0.0, q.color.with_alpha(fade), FRONT);
+        }
+        Shape::Flash => super::scene::soft_disc(
+            p,
+            layout.px(q.pos),
+            layout.len(q.size * (0.6 + 0.6 * easing::out_cubic(k))),
+            q.color.with_alpha(0.5 * fade * fade),
+            FRONT,
+        ),
+        Shape::Ring => p.circle_ex(
+            layout.px(q.pos),
+            layout.len(q.size * (0.2 + 0.8 * k)),
+            layout.len(6.0 * fade + 1.0),
+            q.color.with_alpha(fade),
+            FRONT,
+        ),
+        Shape::Beam(to) => p.line_ex(
+            layout.px(q.pos),
+            layout.px(to),
+            layout.len(q.size * fade),
+            q.color.with_alpha(fade * 0.8),
+            FRONT,
+            BlendMode::Additive,
+        ),
+        Shape::Glint => {
+            // Grows and shrinks again: two crossed thin rays.
+            let s = layout.len(q.size * (1.0 - (2.0 * k - 1.0).abs()));
+            let c = layout.px(q.pos);
+            let w = layout.len(1.6);
+            let color = q.color.with_alpha(0.9);
+            let add = BlendMode::Additive;
+            p.line_ex([c[0] - s, c[1]], [c[0] + s, c[1]], w, color, FRONT, add);
+            p.line_ex([c[0], c[1] - s], [c[0], c[1] + s], w, color, FRONT, add);
+        }
+        Shape::Mote => p.circle_ex(
+            layout.px(q.pos),
+            layout.len(q.size),
+            0.0,
+            q.color.with_alpha(0.25),
+            BACK,
+        ),
+    }
+}
+
+/// Draws popup `q` with its shadow; with full effects it pops in.
+fn draw_popup(p: &mut Painter<'_>, layout: &Layout, q: &Popup, effects: Effects) {
+    let alpha = (1.0 - (q.age - 0.6).max(0.0) / 0.5).clamp(0.0, 1.0);
+
+    let pop = if effects.full() {
+        0.7 + 0.3 * easing::out_back((q.age / 0.2).min(1.0))
+    } else {
+        1.0
+    };
+    let size = layout.len(q.size * pop);
+    let pos = layout.px(q.pos);
+    let shadow = [
+        pos[0] + layout.len(2.0),
+        pos[1] - size / 2.0 + layout.len(2.0),
+    ];
+    p.draw_text(shadow, &q.text)
+        .size(size)
+        .align(Align::Center)
+        .color(Color::BLACK.with_alpha(alpha * 0.6))
+        .layer(TEXT);
+    p.draw_text([pos[0], pos[1] - size / 2.0], &q.text)
+        .size(size)
+        .align(Align::Center)
+        .color(q.color.with_alpha(alpha))
+        .layer(TEXT);
 }

@@ -27,6 +27,7 @@ impl Swap {
             0.5 * (1.0 - (2.0 * k - 1.0).abs())
         } else {
             let k = (self.t / SWAP_SECS).min(1.0);
+
             // Ease in and out.
             let e = if k < 0.5 {
                 4.0 * k * k * k
@@ -35,6 +36,7 @@ impl Swap {
             };
             1.0 - e
         };
+
         [self.dir[0] * f, self.dir[1] * f]
     }
 

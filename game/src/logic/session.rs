@@ -6,6 +6,7 @@ use super::blast;
 use super::board::Board;
 use super::event::{Clear, Event};
 use super::field::{Field, Piece};
+use super::gem::Gem;
 use super::gravity::Gravity;
 use super::matcher::{self, Group};
 use super::mode::Mode;
@@ -54,6 +55,7 @@ impl Session {
     /// A new game of `mode`, its board drawn from `seed`.
     pub fn new(mode: Mode, seed: u64) -> Self {
         let mut rng = Rng::new(seed);
+
         Self {
             field: Field::new(Board::random(&mut rng)),
             rng,
@@ -147,6 +149,7 @@ impl Session {
         if !self.is_still() {
             return None;
         }
+
         moves::valid_swaps(self.field.board()).into_iter().next()
     }
 
@@ -168,23 +171,29 @@ impl Session {
         if !a.adjacent(b) || !self.can_move(a) || !self.can_move(b) {
             return false;
         }
+
         let board = self.field.board();
+
         let (Some(ga), Some(gb)) = (board.get(a), board.get(b)) else {
             return false;
         };
+
         if !moves::is_valid(board, a, b) {
             self.field.bounce(a, b);
             self.events.push(Event::Rejected);
             return true;
         }
+
         self.field.start_swap(a, b);
         self.events.push(Event::Swapped);
+
         match (ga.power == Power::Wild, gb.power == Power::Wild) {
             (true, true) => self.armed.push((ga.id, None)),
             (true, false) => self.armed.push((ga.id, Some(gb.color))),
             (false, true) => self.armed.push((gb.id, Some(ga.color))),
             (false, false) => {}
         }
+
         true
     }
 
@@ -194,16 +203,21 @@ impl Session {
         if self.over {
             return;
         }
+
         if self.mode.tick(dt) {
             self.time_up = true;
         }
+
         self.since_match += dt;
+
         if self.since_match > score::SPEED_WINDOW {
             self.speed = 0;
         }
+
         if self.field.advance(dt) > 0 {
             self.events.push(Event::Landed);
         }
+
         // Once time gems are worth nothing, no new ones appear.
         let odds = if self.next_time_bonus() > 0.0 {
             self.mode.time_gem_odds()
@@ -221,6 +235,7 @@ impl Session {
     fn turn(&mut self) {
         if self.mode.turn_due() && self.armed.is_empty() {
             let g = self.field.gravity().turned();
+
             if self.field.set_gravity(g) {
                 self.mode.turned();
                 self.events.push(Event::Tilted(g));
@@ -231,25 +246,35 @@ impl Session {
     /// Sets off swapped wild gems that have landed.
     fn fire_wilds(&mut self) {
         let armed = std::mem::take(&mut self.armed);
+
         for (id, color) in armed {
             let found = Pos::all().find(|p| self.board().get(*p).is_some_and(|g| g.id == id));
+
             let Some(at) = found else {
                 continue; // Taken out by something else meanwhile.
             };
+
             if !self.field.is_settled(at) {
                 self.armed.push((id, color));
                 continue;
             }
-            let (doomed, colors) = match color {
-                Some(c) => ([at].into(), vec![(at, c)]),
-                None => (
-                    Pos::all()
-                        .filter(|p| self.board().get(*p).is_some())
-                        .collect(),
-                    Vec::new(),
-                ),
-            };
+
+            let (doomed, colors) = self.wild_targets(at, color);
             self.clear(doomed, &[], &colors, 1);
+        }
+    }
+
+    /// What the wild at `at` takes out: itself, taking `color` with it, or with no colour
+    /// (two wilds swapped together) every gem on the board.
+    fn wild_targets(&self, at: Pos, color: Option<u8>) -> (BTreeSet<Pos>, Vec<(Pos, u8)>) {
+        match color {
+            Some(c) => ([at].into(), vec![(at, c)]),
+            None => (
+                Pos::all()
+                    .filter(|p| self.board().get(*p).is_some())
+                    .collect(),
+                Vec::new(),
+            ),
         }
     }
 
@@ -261,6 +286,7 @@ impl Session {
             .filter(|p| settled.get(*p).is_some() && self.field.motion(*p).moved)
             .collect();
         let groups = matcher::find(&settled, &moved);
+
         if !groups.is_empty() {
             let doomed: BTreeSet<Pos> = groups.iter().flat_map(|g| g.cells.clone()).collect();
             let cascade = doomed
@@ -271,6 +297,7 @@ impl Session {
                 .max(1);
             self.clear(doomed, &groups, &[], cascade);
         }
+
         for p in Pos::all() {
             if self.field.is_settled(p) {
                 let m = self.field.motion_mut(p);
@@ -278,6 +305,48 @@ impl Session {
                 m.moved = false;
             }
         }
+    }
+
+    /// Places the reward gem of each group that earned one, in `colors`; returns them
+    /// with where they went.
+    fn place_rewards(&mut self, groups: &[Group], colors: Vec<u8>) -> Vec<(Gem, Pos)> {
+        let mut created = Vec::new();
+
+        for (g, color) in groups.iter().zip(colors) {
+            if g.reward != Power::None {
+                let gem = self.field.new_gem(color, g.reward);
+                self.field.place(g.spawn, gem);
+                created.push((gem, g.spawn));
+            }
+        }
+
+        created
+    }
+
+    /// A player's match: raises the speed bonus if it came quickly after the last one.
+    fn count_speed(&mut self) {
+        if self.since_match <= score::SPEED_WINDOW {
+            self.speed = (self.speed + 1).min(score::MAX_SPEED);
+        }
+
+        self.since_match = 0.0;
+    }
+
+    /// Credits `time_gems` cleared time gems in modes with a clock; returns the seconds
+    /// they add (none without a clock).
+    fn add_time_gems(&mut self, time_gems: u32) -> f32 {
+        let mut time_added = 0.0;
+
+        if self.mode.remaining().is_some() {
+            for _ in 0..time_gems {
+                let secs = self.next_time_bonus();
+                self.time_gems += 1;
+                self.time_added += secs;
+                time_added += secs;
+            }
+        }
+
+        time_added
     }
 
     /// Clears `doomed` and whatever the special gems among them take out, places the
@@ -301,33 +370,18 @@ impl Session {
         let gone: Vec<u32> = cleared.iter().map(|(g, _)| g.id).collect();
         self.armed.retain(|(id, _)| !gone.contains(id));
 
-        let mut created = Vec::new();
-        for (g, color) in groups.iter().zip(reward_colors) {
-            if g.reward != Power::None {
-                let gem = self.field.new_gem(color, g.reward);
-                self.field.place(g.spawn, gem);
-                created.push((gem, g.spawn));
-            }
-        }
+        let created = self.place_rewards(groups, reward_colors);
         let rewards: Vec<Power> = groups.iter().map(|g| g.reward).collect();
+
         if cascade == 1 {
-            if self.since_match <= score::SPEED_WINDOW {
-                self.speed = (self.speed + 1).min(score::MAX_SPEED);
-            }
-            self.since_match = 0.0;
+            self.count_speed();
         }
+
         let base = score::points(cleared.len(), &rewards, blasts.len(), cascade);
         let points = score::with_speed(base, self.speed);
         let time_gems = cleared.iter().filter(|(g, _)| g.time_bonus).count() as u32;
-        let mut time_added = 0.0;
-        if self.mode.remaining().is_some() {
-            for _ in 0..time_gems {
-                let secs = self.next_time_bonus();
-                self.time_gems += 1;
-                self.time_added += secs;
-                time_added += secs;
-            }
-        }
+        let time_added = self.add_time_gems(time_gems);
+
         self.score += points;
         self.best_cascade = self.best_cascade.max(cascade);
         self.mode.add_time(time_added);
@@ -349,7 +403,9 @@ impl Session {
         if !self.is_still() {
             return;
         }
+
         let stuck = moves::valid_swaps(self.field.board()).is_empty();
+
         if self.time_up || (stuck && matches!(self.mode, Mode::Endless)) {
             self.over = true;
             self.events.push(Event::Over);
@@ -371,13 +427,16 @@ mod tests {
     /// Updates until the board rests or the game ends; returns the events.
     fn settle(s: &mut Session) -> Vec<Event> {
         let mut events = Vec::new();
+
         for _ in 0..120 * 60 {
             s.update(DT);
             events.extend(s.drain_events());
+
             if s.is_still() || s.is_over() {
                 return events;
             }
         }
+
         panic!("the board never came to rest");
     }
 
@@ -435,23 +494,28 @@ mod tests {
     fn frantic(s: &mut Session, ticks: usize, seed: u64) -> usize {
         let mut rng = Rng::new(seed);
         let mut busy_swaps = 0;
+
         for t in 0..ticks {
             if t % 3 == 0 {
                 let a = Pos::new(rng.below(SIZE as u32) as i32, rng.below(SIZE as u32) as i32);
+
                 let b = if rng.one_in(2) {
                     Pos::new(a.x + 1, a.y)
                 } else {
                     Pos::new(a.x, a.y + 1)
                 };
                 let moving = !s.is_still();
+
                 if b.on_board() && moves::is_valid(s.board(), a, b) && s.swap(a, b) && moving {
                     busy_swaps += 1;
                 }
             }
+
             s.update(DT);
             s.drain_events();
             assert_apart(s);
         }
+
         busy_swaps
     }
 
@@ -464,6 +528,7 @@ mod tests {
                 .map(|q| q.pos[1])
                 .collect();
             rows.sort_by(f32::total_cmp);
+
             for w in rows.windows(2) {
                 assert!(w[1] - w[0] >= 0.999, "column {x} overlaps: {rows:?}");
             }
@@ -473,13 +538,17 @@ mod tests {
     #[test]
     fn swapping_during_cascades_never_jams_the_board() {
         let mut busy = 0;
+
         for seed in 0..12 {
             let mut s = Session::new(Mode::Endless, seed);
             busy += frantic(&mut s, 120 * 30, seed + 100);
+
             if !s.is_over() {
                 settle(&mut s);
             }
+
             assert_sound(&s);
+
             for q in s.pieces() {
                 assert_eq!(
                     q.pos,
@@ -488,6 +557,7 @@ mod tests {
                 );
             }
         }
+
         assert!(busy > 50, "only {busy} swaps landed while the board moved");
     }
 
@@ -496,11 +566,13 @@ mod tests {
         let best = (0..10)
             .map(|seed| {
                 let mut s = Session::new(Mode::rush(), seed);
+
                 for _ in 0..40 {
                     let Some((a, b)) = s.hint() else { break };
                     s.swap(a, b);
                     settle(&mut s);
                 }
+
                 s.best_cascade()
             })
             .max()
@@ -521,15 +593,19 @@ mod tests {
     #[test]
     fn rush_ends_once_time_is_up_and_the_board_rests() {
         let mut s = Session::new(Mode::rush(), 3);
+
         for _ in 0..(120 * 59) {
             s.update(DT);
         }
+
         assert!(!s.is_over());
         let (a, b) = s.hint().unwrap();
         s.swap(a, b);
+
         for _ in 0..(120 * 2) {
             s.update(DT);
         }
+
         assert!(
             !s.can_move(Pos::new(0, 0)),
             "no moves after the clock ran out"
@@ -569,17 +645,21 @@ mod tests {
     #[test]
     fn endless_ends_exactly_when_stuck() {
         let mut ended = 0;
+
         for seed in 0..20 {
             let mut s = Session::new(Mode::Endless, seed);
+
             for _ in 0..400 {
                 let Some((a, b)) = s.hint() else { break };
                 s.swap(a, b);
                 settle(&mut s);
             }
+
             let stuck = moves::valid_swaps(s.board()).is_empty();
             assert_eq!(s.is_over(), stuck, "seed {seed}");
             ended += usize::from(s.is_over());
         }
+
         assert!(
             ended > 0,
             "no endless game got stuck; the test proves nothing"
@@ -591,11 +671,13 @@ mod tests {
         for seed in 0..5 {
             // A clock that outlasts the test.
             let mut s = Session::new(Mode::Rush { remaining: 1e9 }, seed);
+
             for _ in 0..200 {
                 let Some((a, b)) = s.hint() else { break };
                 s.swap(a, b);
                 settle(&mut s);
             }
+
             assert!(!s.is_over());
             assert!(s.hint().is_some());
         }
@@ -606,24 +688,31 @@ mod tests {
         let mut s = Session::new(Mode::tilt(), 8);
         let mut turns = Vec::new();
         let mut rng = Rng::new(3);
+
         for t in 0..(120 * 50) {
             if t % 4 == 0 {
                 let a = Pos::new(rng.below(SIZE as u32) as i32, rng.below(SIZE as u32) as i32);
                 let b = Pos::new(a.x + 1, a.y);
+
                 if b.on_board() && moves::is_valid(s.board(), a, b) {
                     s.swap(a, b);
                 }
             }
+
             s.update(DT);
+
             for e in s.drain_events() {
                 if let Event::Tilted(g) = e {
                     turns.push(g);
                 }
             }
+
             assert_apart_along(&s);
         }
+
         assert_eq!(turns, vec![Gravity::Left, Gravity::Up, Gravity::Right]);
         settle(&mut s);
+
         if !s.is_over() {
             assert_sound(&s);
         }
@@ -633,6 +722,7 @@ mod tests {
     fn assert_apart_along(s: &Session) {
         let horizontal = matches!(s.gravity(), Gravity::Left | Gravity::Right);
         let (along, across) = if horizontal { (0, 1) } else { (1, 0) };
+
         for lane in 0..SIZE {
             let mut at: Vec<f32> = s
                 .pieces()
@@ -640,6 +730,7 @@ mod tests {
                 .map(|q| q.pos[along])
                 .collect();
             at.sort_by(f32::total_cmp);
+
             for w in at.windows(2) {
                 assert!(w[1] - w[0] >= 0.999, "lane {lane} overlaps: {at:?}");
             }
@@ -649,15 +740,19 @@ mod tests {
     #[test]
     fn quick_moves_build_speed_and_pausing_loses_it() {
         let mut s = Session::new(Mode::Endless, 11);
+
         for _ in 0..3 {
             let (a, b) = s.hint().unwrap();
             s.swap(a, b);
             settle(&mut s);
         }
+
         assert!(s.speed() >= 1, "three quick moves, speed {}", s.speed());
+
         for _ in 0..(120 * 3) {
             s.update(DT);
         }
+
         assert_eq!(s.speed(), 0);
         assert_eq!(s.speed_left(), 0.0);
     }

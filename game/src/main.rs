@@ -34,11 +34,13 @@ fn main() -> Result<()> {
         "tilt" => Mode::tilt(),
         _ => fail("--mode needs rush, endless or tilt"),
     });
+
     let time_rule = match value("--time").as_deref() {
         None | Some("cap") => TimeRule::Cap,
         Some("fade") => TimeRule::Fade,
         Some(_) => fail("--time needs cap or fade"),
     };
+
     let seed = value("--seed").map(|s| s.parse().unwrap_or_else(|_| fail("--seed needs a number")));
     let at = value("--at").map_or(3.0, |s| {
         s.parse().unwrap_or_else(|_| fail("--at needs seconds"))
@@ -47,6 +49,7 @@ fn main() -> Result<()> {
         if p.is_empty() {
             fail("--screenshot needs a file name");
         }
+
         (p.into(), at)
     });
     set_options(Options {
@@ -58,6 +61,7 @@ fn main() -> Result<()> {
     });
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+
     run::<App>(config())
 }
 

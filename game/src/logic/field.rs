@@ -75,6 +75,7 @@ impl Field {
         if still {
             self.gravity = g;
         }
+
         still
     }
 
@@ -106,11 +107,13 @@ impl Field {
     /// Only the settled gems, for matching.
     pub fn settled_board(&self) -> Board {
         let mut b = self.board.clone();
+
         for p in Pos::all() {
             if !self.is_settled(p) {
                 b.set(p, None);
             }
         }
+
         b
     }
 
@@ -138,6 +141,7 @@ impl Field {
     pub fn start_swap(&mut self, a: Pos, b: Pos) {
         self.board.swap(a, b);
         self.motion.swap(idx(a), idx(b));
+
         for (at, from) in [(a, b), (b, a)] {
             let m = self.motion_mut(at);
             m.swap = Some(Swap {
@@ -170,6 +174,7 @@ impl Field {
         *self.motion_mut(p) = Motion::default();
         self.hold[idx(p)] = HOLD_SECS;
         self.hole_chain[idx(p)] = chain + 1;
+
         Some((gem, at))
     }
 
@@ -189,18 +194,22 @@ impl Field {
     /// Runs swaps, falls and holds for `dt` seconds. Returns how many gems landed.
     pub fn advance(&mut self, dt: f32) -> usize {
         let mut landed = 0;
+
         for i in 0..CELLS {
             self.hold[i] = (self.hold[i] - dt).max(0.0);
             let m = &mut self.motion[i];
+
             if let Some(s) = &mut m.swap {
                 s.t += dt;
                 if s.done() {
                     m.swap = None;
                 }
             }
+
             if m.fall < 0.0 {
                 m.vy += GRAVITY * dt;
                 m.fall += m.vy * dt;
+
                 if m.fall >= 0.0 {
                     m.fall = 0.0;
                     m.vy = 0.0;
@@ -208,20 +217,25 @@ impl Field {
                 }
             }
         }
+
         self.keep_lanes_apart();
+
         landed
     }
 
     /// A gem never overtakes the one ahead of it in its lane: it rides behind instead.
     fn keep_lanes_apart(&mut self) {
         let g = self.gravity;
+
         for lane in 0..SIZE {
             let mut ahead: Option<(f32, f32)> = None; // drawn depth and speed
             for d in 0..SIZE {
                 let p = g.cell(lane, d);
+
                 if self.board.get(p).is_none() {
                     continue;
                 }
+
                 let m = &mut self.motion[idx(p)];
                 let drawn = d as f32 - m.fall;
                 if let Some((depth, vy)) = ahead
@@ -231,6 +245,7 @@ impl Field {
                     m.fall = d as f32 - (depth + 1.0);
                     m.vy = m.vy.min(vy);
                 }
+
                 ahead = Some((d as f32 - m.fall, m.vy));
             }
         }
@@ -241,60 +256,89 @@ impl Field {
     /// One in `time_odds` new gems carries a time bonus. Gems falling past a gap take on
     /// the cascade depth of the clear that made it.
     pub fn gravity_step(&mut self, rng: &mut Rng, time_odds: u32) {
-        let g = self.gravity;
         for lane in 0..SIZE {
-            let mut floor = 0;
-            let mut farthest = -1.0f32; // drawn depth of the farthest gem or block so far
-            let mut chain = 0;
-            for d in 0..SIZE {
-                let p = g.cell(lane, d);
-                if self.hold[idx(p)] > 0.0 {
-                    floor = d + 1;
-                    farthest = d as f32;
-                    chain = 0;
-                    continue;
-                }
-                let Some(gem) = self.board.get(p) else {
-                    chain = chain.max(self.hole_chain[idx(p)]);
-                    self.hole_chain[idx(p)] = 0;
-                    continue;
-                };
-                let to = g.cell(lane, floor);
-                if d != floor {
-                    let mut m = self.motion[idx(p)];
-                    m.fall -= (d - floor) as f32;
-                    m.chain = m.chain.max(chain);
-                    self.board.set(to, Some(gem));
-                    self.board.set(p, None);
-                    self.motion[idx(to)] = m;
-                    self.motion[idx(p)] = Motion::default();
-                }
-                farthest = farthest.max(floor as f32 - self.motion[idx(to)].fall);
-                floor += 1;
+            let (floor, farthest, chain) = self.settle_lane(lane);
+            self.refill_lane(rng, time_odds, lane, floor, farthest, chain);
+        }
+    }
+
+    /// Moves the gems of `lane` down to rest on each other or on a held cell. Returns the
+    /// first empty depth, the drawn depth of the farthest gem or block, and the cascade
+    /// chain the holes carried.
+    fn settle_lane(&mut self, lane: i32) -> (i32, f32, u32) {
+        let g = self.gravity;
+        let mut floor = 0;
+        let mut farthest = -1.0f32; // drawn depth of the farthest gem or block so far
+        let mut chain = 0;
+
+        for d in 0..SIZE {
+            let p = g.cell(lane, d);
+
+            if self.hold[idx(p)] > 0.0 {
+                floor = d + 1;
+                farthest = d as f32;
+                chain = 0;
+                continue;
             }
-            // Depths floor.. are empty and open past the edge: bring new gems in, queued
-            // behind whatever is farthest out in the lane.
-            let mut drawn = farthest.max(SIZE as f32 - 1.0);
-            for d in floor..SIZE {
-                drawn += 1.0;
-                let color = rng.below(u32::from(COLORS)) as u8;
-                let gem = self
-                    .board
-                    .new_gem(color, Power::None, rng.one_in(time_odds));
-                let p = g.cell(lane, d);
-                self.board.set(p, Some(gem));
-                self.motion[idx(p)] = Motion {
-                    fall: d as f32 - drawn,
-                    chain,
-                    ..Motion::default()
-                };
+
+            let Some(gem) = self.board.get(p) else {
+                chain = chain.max(self.hole_chain[idx(p)]);
+                self.hole_chain[idx(p)] = 0;
+                continue;
+            };
+
+            let to = g.cell(lane, floor);
+
+            if d != floor {
+                let mut m = self.motion[idx(p)];
+                m.fall -= (d - floor) as f32;
+                m.chain = m.chain.max(chain);
+                self.board.set(to, Some(gem));
+                self.board.set(p, None);
+                self.motion[idx(to)] = m;
+                self.motion[idx(p)] = Motion::default();
             }
+
+            farthest = farthest.max(floor as f32 - self.motion[idx(to)].fall);
+            floor += 1;
+        }
+
+        (floor, farthest, chain)
+    }
+
+    /// Fills depths `floor..` of `lane` with new gems, queued behind whatever is
+    /// `farthest` out in the lane (they are empty and open past the edge).
+    fn refill_lane(
+        &mut self,
+        rng: &mut Rng,
+        time_odds: u32,
+        lane: i32,
+        floor: i32,
+        farthest: f32,
+        chain: u32,
+    ) {
+        let mut drawn = farthest.max(SIZE as f32 - 1.0);
+
+        for d in floor..SIZE {
+            drawn += 1.0;
+            let color = rng.below(u32::from(COLORS)) as u8;
+            let gem = self
+                .board
+                .new_gem(color, Power::None, rng.one_in(time_odds));
+            let p = self.gravity.cell(lane, d);
+            self.board.set(p, Some(gem));
+            self.motion[idx(p)] = Motion {
+                fall: d as f32 - drawn,
+                chain,
+                ..Motion::default()
+            };
         }
     }
 
     /// Mixes the gems into a playable arrangement and drops them all in anew.
     pub fn reshuffle(&mut self, rng: &mut Rng) {
         self.board.reshuffle(rng);
+
         for p in Pos::all() {
             *self.motion_mut(p) = Motion {
                 fall: -(SIZE as f32) - 1.0 - self.gravity.lane(p) as f32 * 0.25,
@@ -313,10 +357,12 @@ mod tests {
         for _ in 0..2000 {
             f.advance(1.0 / 120.0);
             f.gravity_step(rng, 0);
+
             if f.is_still() {
                 return;
             }
         }
+
         panic!("never settled");
     }
 
@@ -330,6 +376,7 @@ mod tests {
         f.clear(Pos::new(2, 5), 1);
         f.clear(Pos::new(2, 6), 1);
         settle(&mut f, &mut rng);
+
         // The five gems above dropped two rows, two new ones sit on top.
         for y in 0..5 {
             assert_eq!(
@@ -337,6 +384,7 @@ mod tests {
                 ids[y as usize]
             );
         }
+
         assert_eq!(f.board().get(Pos::new(2, 7)).unwrap().id, ids[7]);
         assert!(!ids.contains(&f.board().get(Pos::new(2, 0)).unwrap().id));
     }
@@ -360,13 +408,16 @@ mod tests {
     fn falling_gems_never_overlap() {
         let mut rng = Rng::new(3);
         let mut f = Field::new(Board::random(&mut rng));
+
         for y in [7, 5, 3] {
             f.clear(Pos::new(4, y), 1);
         }
+
         for step in 0..400 {
             if step == 20 {
                 f.clear(Pos::new(4, 7), 1);
             }
+
             f.advance(1.0 / 120.0);
             f.gravity_step(&mut rng, 0);
             let mut rows: Vec<f32> = f
@@ -375,6 +426,7 @@ mod tests {
                 .map(|q| q.pos[1])
                 .collect();
             rows.sort_by(f32::total_cmp);
+
             for w in rows.windows(2) {
                 assert!(w[1] - w[0] >= 0.999, "overlap at step {step}: {rows:?}");
             }
@@ -394,10 +446,12 @@ mod tests {
             settle(&mut f, &mut rng);
             // The gem at depth 0 stays; the ones behind the gap moved one cell closer.
             assert_eq!(f.board().get(g.cell(2, 0)).unwrap().id, lane[0], "{g:?}");
+
             for d in 1..SIZE - 1 {
                 let id = f.board().get(g.cell(2, d)).unwrap().id;
                 assert_eq!(id, lane[d as usize + 1], "{g:?} depth {d}");
             }
+
             assert!(!lane.contains(&f.board().get(g.cell(2, SIZE - 1)).unwrap().id));
         }
     }

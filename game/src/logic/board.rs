@@ -9,7 +9,7 @@ use super::{matcher, moves};
 /// Cells per side.
 pub const SIZE: i32 = 8;
 
-/// An 8x8 grid of gems; cells are empty only while a move resolves.
+/// An 8×8 grid of gems; cells are empty only while a move resolves.
 #[derive(Clone, Debug)]
 pub struct Board {
     /// Row-major cells.
@@ -30,6 +30,7 @@ impl Board {
     /// A full board with no match on it and at least one move.
     pub fn random(rng: &mut Rng) -> Self {
         let mut board = Self::empty();
+
         loop {
             board.fill_without_matches(rng);
             if !moves::valid_swaps(&board).is_empty() {
@@ -66,6 +67,7 @@ impl Board {
     /// A new gem with a fresh id (not yet placed).
     pub fn new_gem(&mut self, color: u8, power: Power, time_bonus: bool) -> Gem {
         self.next_id += 1;
+
         Gem {
             id: self.next_id,
             color,
@@ -79,6 +81,7 @@ impl Board {
         for p in Pos::all() {
             self.set(p, None);
         }
+
         for p in Pos::all() {
             let mut colors: Vec<u8> = (0..COLORS).collect();
             rng.shuffle(&mut colors);
@@ -107,22 +110,28 @@ impl Board {
         let mut gems: Vec<Gem> = Pos::all().filter_map(|p| self.get(p)).collect();
         let shuffled = (0..100).any(|_| {
             rng.shuffle(&mut gems);
+
             for (p, g) in Pos::all().zip(&gems) {
                 self.set(p, Some(*g));
             }
+
             matcher::find(self, &[]).is_empty() && !moves::valid_swaps(self).is_empty()
         });
+
         if !shuffled {
             let next_id = self.next_id;
             *self = Self::random(rng);
+
             // Keep ids unique across the replacement.
             for p in Pos::all() {
                 let mut g = self.get(p).expect("random boards are full");
                 g.id += next_id;
                 self.set(p, Some(g));
             }
+
             self.next_id += next_id;
         }
+
         Pos::all()
             .map(|p| (self.get(p).expect("full after reshuffle"), p))
             .collect()
@@ -133,6 +142,7 @@ impl Board {
     #[cfg(test)]
     pub fn parse(rows: &[&str]) -> Self {
         let mut board = Self::empty();
+
         for (y, row) in rows.iter().enumerate() {
             for (x, ch) in row.chars().enumerate() {
                 let (color, power) = match ch {
@@ -142,10 +152,12 @@ impl Board {
                     'W' => (0, Power::Wild),
                     _ => continue,
                 };
+
                 let gem = board.new_gem(color, power, false);
                 board.set(Pos::new(x as i32, y as i32), Some(gem));
             }
         }
+
         board
     }
 }

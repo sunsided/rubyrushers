@@ -59,9 +59,11 @@ impl Sound {
                 let mut v = s.render(Preset::MusicBox.params(), n, 0.06, 0.25);
                 // A fifth on top for a brighter chime.
                 let top = s.render(Preset::MusicBox.params(), n + 7, 0.04, 0.2);
+
                 for (a, b) in v.iter_mut().zip(top) {
                     *a = 0.7 * *a + 0.5 * b;
                 }
+
                 v
             })
             .collect();
@@ -94,6 +96,7 @@ impl Sound {
         let Some(audio) = audio else {
             return;
         };
+
         let (buf, volume) = match sfx {
             Sfx::Match(depth) => {
                 let i = (depth.max(1) as usize - 1).min(self.matches.len() - 1);
@@ -107,6 +110,7 @@ impl Sound {
             Sfx::Over => (&self.over, 0.5),
             Sfx::Click => (&self.click, 0.3),
         };
+
         // Before the first gesture on the web, or without a device, this just fails.
         let _ = audio.play_samples_with(buf, self.rate, PlayOptions::default().volume(volume));
     }

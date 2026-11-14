@@ -13,11 +13,13 @@ pub const WHITE: u8 = 6;
 /// Reads every cell of the board.
 pub fn board(img: &Image, grid: &Grid) -> Board {
     let mut b = [[Tile::Unknown; SIZE]; SIZE];
+
     for (y, row) in b.iter_mut().enumerate() {
         for (x, t) in row.iter_mut().enumerate() {
             *t = cell(img, grid.center(x, y), grid.pitch);
         }
     }
+
     b
 }
 
@@ -31,30 +33,25 @@ fn hue_distance(a: f32, b: f32) -> f32 {
 /// gem): the dominant hue of the colourful pixels, white when there are hardly any, wild
 /// when the hues are all over the place.
 pub fn cell(img: &Image, center: [f32; 2], pitch: f32) -> Tile {
-    let r = (pitch * 0.2) as isize;
-    let (cx, cy) = (center[0] as isize, center[1] as isize);
     let (mut n, mut colourful, mut bright) = (0usize, 0usize, 0usize);
     let (mut sx, mut sy) = (0.0f32, 0.0f32);
-    for y in cy - r..=cy + r {
-        for x in cx - r..=cx + r {
-            if x < 0 || y < 0 || x as usize >= img.width || y as usize >= img.height {
-                continue;
-            }
-            n += 1;
-            let (h, s, v) = hsv(img.at(x as usize, y as usize));
-            if s > 0.35 && v > 0.3 {
-                colourful += 1;
-                let a = h.to_radians();
-                sx += a.cos();
-                sy += a.sin();
-            } else if s < 0.2 && v > 0.6 {
-                bright += 1;
-            }
+
+    for (h, s, v) in patch(img, center, (pitch * 0.2) as isize).map(hsv) {
+        n += 1;
+        if s > 0.35 && v > 0.3 {
+            colourful += 1;
+            let a = h.to_radians();
+            sx += a.cos();
+            sy += a.sin();
+        } else if s < 0.2 && v > 0.6 {
+            bright += 1;
         }
     }
+
     if n == 0 {
         return Tile::Unknown;
     }
+
     if colourful * 4 < n {
         return if bright * 2 > n {
             Tile::Gem(WHITE)
@@ -62,18 +59,36 @@ pub fn cell(img: &Image, center: [f32; 2], pitch: f32) -> Tile {
             Tile::Unknown
         };
     }
+
     // How well the hues agree: 1 all the same, 0 spread around the circle.
     let agreement = (sx * sx + sy * sy).sqrt() / colourful as f32;
     if agreement < 0.6 {
         return Tile::Wild;
     }
-    let hue = sy.atan2(sx).to_degrees().rem_euclid(360.0);
+
+    nearest_hue(sy.atan2(sx).to_degrees().rem_euclid(360.0))
+}
+
+/// The pixels of the square patch with radius `r` around `center` that lie inside `img`.
+fn patch(img: &Image, center: [f32; 2], r: isize) -> impl Iterator<Item = [u8; 3]> + '_ {
+    let (cx, cy) = (center[0] as isize, center[1] as isize);
+
+    (cy - r..=cy + r)
+        .flat_map(move |y| (cx - r..=cx + r).map(move |x| (x, y)))
+        .filter(|&(x, y)| x >= 0 && y >= 0 && (x as usize) < img.width && (y as usize) < img.height)
+        .map(|(x, y)| img.at(x as usize, y as usize))
+}
+
+/// The colour class whose hue lies closest to `hue` (degrees), or unknown when none is
+/// close.
+fn nearest_hue(hue: f32) -> Tile {
     let (class, d) = HUES
         .iter()
         .enumerate()
         .map(|(i, h)| (i, hue_distance(hue, *h)))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .expect("six hues");
+
     if d > 25.0 {
         Tile::Unknown
     } else {
@@ -92,6 +107,7 @@ mod tests {
         let img = synthetic([300, 50], 80, class);
         let grid = Grid::locate(&img).unwrap();
         let b = board(&img, &grid);
+
         for (y, row) in b.iter().enumerate() {
             for (x, tile) in row.iter().enumerate() {
                 assert_eq!(*tile, Tile::Gem(class(x, y) as u8), "({x}, {y})");
@@ -117,6 +133,7 @@ mod tests {
                 img.set(x, y, c);
             }
         }
+
         assert_eq!(cell(&img, [50.0, 50.0], 100.0), Tile::Wild);
     }
 

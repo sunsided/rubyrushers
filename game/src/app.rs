@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 
 use game_toolkit::prelude::*;
 
-use crate::logic::{Event, Mode, Pos, Session, TimeRule};
+use crate::logic::{Clear, Event, Mode, Pos, Session, TimeRule};
 use crate::render::scene::{self, Marks};
 use crate::render::showcase;
 use crate::render::{Effects, Fx, Layout, gem_art, hud};
@@ -157,8 +157,10 @@ impl App {
     fn board_input(&mut self, ctx: &Context, layout: &Layout) {
         let (mx, my) = ctx.input.mouse_pos();
         let mouse = [mx, my];
+
         if ctx.input.mouse_pressed(MouseButton::Left) {
             self.idle = 0.0;
+
             match layout.cell_at(mouse) {
                 Some(c) if self.selected.is_some_and(|s| s.adjacent(c)) => {
                     let s = self.selected.unwrap_or(c);
@@ -172,18 +174,22 @@ impl App {
                 None => self.selected = None,
             }
         }
+
         // A flick can start and end within one frame, so measure before letting go.
         if let Some((start, c)) = self.press {
             let d = [mouse[0] - start[0], mouse[1] - start[1]];
+
             if d[0].abs().max(d[1].abs()) > SWIPE_CELLS * layout.cell() {
                 let to = if d[0].abs() > d[1].abs() {
                     Pos::new(c.x + d[0].signum() as i32, c.y)
                 } else {
                     Pos::new(c.x, c.y + d[1].signum() as i32)
                 };
+
                 if to.on_board() {
                     self.swap(c, to);
                 }
+
                 self.press = None;
             } else if !ctx.input.mouse_held(MouseButton::Left) {
                 self.press = None;
@@ -207,33 +213,135 @@ impl App {
                     self.fx.jolt();
                     Some(Sfx::Blast)
                 }
-                Event::Over => {
-                    let i = self.mode_index();
-                    let new_best = self.session.score() > self.bests[i];
-                    if new_best {
-                        self.bests[i] = self.session.score();
-                        scores::save(&self.bests);
-                    }
-                    self.show(Screen::Over { new_best });
-                    self.selected = None;
-                    Some(Sfx::Over)
-                }
-                Event::Cleared(clear) => {
-                    self.shown_target += clear.points;
-                    self.fx.cleared(clear, &mut ctx.rng, self.effects);
-                    if !clear.blasts.is_empty() {
-                        self.sound.play(ctx.audio.as_mut(), Sfx::Blast);
-                    }
-                    if clear.time_gems > 0 {
-                        self.sound.play(ctx.audio.as_mut(), Sfx::Time);
-                    }
-                    Some(Sfx::Match(clear.cascade))
-                }
+                Event::Over => Some(self.game_over()),
+                Event::Cleared(clear) => Some(self.cleared(ctx, clear)),
             };
+
             if let Some(sfx) = sfx {
                 self.sound.play(ctx.audio.as_mut(), sfx);
             }
         }
+    }
+
+    /// The game ended: keeps a new best score and shows the final screen.
+    fn game_over(&mut self) -> Sfx {
+        let i = self.mode_index();
+        let new_best = self.session.score() > self.bests[i];
+
+        if new_best {
+            self.bests[i] = self.session.score();
+            scores::save(&self.bests);
+        }
+
+        self.show(Screen::Over { new_best });
+        self.selected = None;
+        Sfx::Over
+    }
+
+    /// Gems were cleared: counts the points up and sets off the effects and the extra
+    /// sounds for blasts and time gems.
+    fn cleared(&mut self, ctx: &mut Context, clear: &Clear) -> Sfx {
+        self.shown_target += clear.points;
+        self.fx.cleared(clear, &mut ctx.rng, self.effects);
+
+        if !clear.blasts.is_empty() {
+            self.sound.play(ctx.audio.as_mut(), Sfx::Blast);
+        }
+
+        if clear.time_gems > 0 {
+            self.sound.play(ctx.audio.as_mut(), Sfx::Time);
+        }
+
+        Sfx::Match(clear.cascade)
+    }
+
+    /// Lets the shown score run up to the real one.
+    fn count_up_score(&mut self, dt: f32) {
+        let target = self.shown_target as f32;
+        self.shown_score += (target - self.shown_score) * (dt * 8.0).min(1.0);
+
+        if (target - self.shown_score).abs() < 1.0 {
+            self.shown_score = target;
+        }
+    }
+
+    /// The title screen: a mode button or its number key starts a game; Escape quits.
+    fn title_input(&mut self, ctx: &mut Context, layout: &Layout) {
+        let (mx, my) = ctx.input.mouse_pos();
+        let clicked = self
+            .mouse_pressed(ctx)
+            .then(|| hud::button_at(layout.design([mx, my])))
+            .flatten();
+        let key = [Key::Digit1, Key::Digit2, Key::Digit3]
+            .iter()
+            .position(|k| ctx.input.key_pressed(*k));
+
+        if let Some(i) = clicked.or(key) {
+            self.sound.play(ctx.audio.as_mut(), Sfx::Click);
+            self.start(hud::MODES[i]);
+        } else if ctx.input.key_pressed(Key::Escape) {
+            ctx.quit();
+        }
+    }
+
+    /// A game in progress: input on the board, the session's clock, and what happened.
+    fn play(&mut self, ctx: &mut Context, layout: &Layout, dt: f32) {
+        if ctx.input.key_pressed(Key::Escape) {
+            self.show(Screen::Title);
+            return;
+        }
+
+        self.board_input(ctx, layout);
+
+        if self.selected.is_some_and(|c| !self.session.can_move(c)) {
+            self.selected = None;
+        }
+
+        self.session.update(dt);
+        let events = self.session.drain_events();
+        self.react(ctx, events);
+
+        if self.session.is_still() {
+            self.idle += dt;
+        }
+    }
+
+    /// The final screen: a click, Enter or Escape goes back to the title.
+    fn over_input(&mut self, ctx: &mut Context) {
+        if self.mouse_pressed(ctx)
+            || ctx.input.key_pressed(Key::Enter)
+            || ctx.input.key_pressed(Key::Escape)
+        {
+            self.sound.play(ctx.audio.as_mut(), Sfx::Click);
+            self.show(Screen::Title);
+        }
+    }
+
+    /// The board and its effects, over a soft glow with full effects.
+    fn draw_board(&self, p: &mut Painter<'_>, base: &Layout, layout: &Layout, marks: Marks) {
+        if self.effects.full() {
+            showcase::glows(p, base, self.clock, 0.1);
+        }
+
+        let (session, fx, effects) = (&self.session, &self.fx, self.effects);
+        scene::board(
+            p, layout, session, fx, self.atlas, self.clock, marks, effects,
+        );
+        self.fx.draw(p, layout, self.effects);
+    }
+
+    /// The score panel beside the board.
+    fn draw_panel(&self, p: &mut Painter<'_>, base: &Layout) {
+        let best = self.bests[self.mode_index()];
+        hud::panel(
+            p,
+            base,
+            &self.session,
+            self.shown_score as u64,
+            best,
+            self.clock,
+            self.effects,
+        );
     }
 
     /// F12 saves a screenshot; a command-line one is taken when due, then the app quits.
@@ -242,6 +350,7 @@ impl App {
             ctx.quit();
             return;
         }
+
         let due = self
             .screenshot
             .as_ref()
@@ -257,10 +366,12 @@ impl App {
         } else {
             None
         };
+
         if let Some(p) = path {
             if let Some(dir) = p.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
+
             log::info!("screenshot {}", p.display());
             ctx.gfx.request_screenshot(p);
         }
@@ -310,9 +421,11 @@ impl Game for App {
             screenshot: options.screenshot,
             quit_next: false,
         };
+
         if let Some(mode) = options.mode {
             app.start(mode);
         }
+
         Ok(app)
     }
 
@@ -321,65 +434,19 @@ impl Game for App {
         self.clock += dt;
         self.screenshots(ctx);
         let layout = Self::layout(ctx);
+
         if ctx.input.key_pressed(Key::F2) {
             self.effects = self.effects.toggled();
         }
+
         self.fx
             .update(dt, &mut ctx.rng, self.effects, self.session.pieces());
-        let target = self.shown_target as f32;
-        self.shown_score += (target - self.shown_score) * (dt * 8.0).min(1.0);
-        if (target - self.shown_score).abs() < 1.0 {
-            self.shown_score = target;
-        }
+        self.count_up_score(dt);
 
         match self.screen {
-            Screen::Title => {
-                let (mx, my) = ctx.input.mouse_pos();
-                let clicked = self
-                    .mouse_pressed(ctx)
-                    .then(|| hud::button_at(layout.design([mx, my])))
-                    .flatten();
-                let key = if ctx.input.key_pressed(Key::Digit1) {
-                    Some(0)
-                } else if ctx.input.key_pressed(Key::Digit2) {
-                    Some(1)
-                } else if ctx.input.key_pressed(Key::Digit3) {
-                    Some(2)
-                } else {
-                    None
-                };
-                if let Some(i) = clicked.or(key) {
-                    self.sound.play(ctx.audio.as_mut(), Sfx::Click);
-                    self.start(hud::MODES[i]);
-                } else if ctx.input.key_pressed(Key::Escape) {
-                    ctx.quit();
-                }
-            }
-            Screen::Playing => {
-                if ctx.input.key_pressed(Key::Escape) {
-                    self.show(Screen::Title);
-                    return;
-                }
-                self.board_input(ctx, &layout);
-                if self.selected.is_some_and(|c| !self.session.can_move(c)) {
-                    self.selected = None;
-                }
-                self.session.update(dt);
-                let events = self.session.drain_events();
-                self.react(ctx, events);
-                if self.session.is_still() {
-                    self.idle += dt;
-                }
-            }
-            Screen::Over { .. } => {
-                if self.mouse_pressed(ctx)
-                    || ctx.input.key_pressed(Key::Enter)
-                    || ctx.input.key_pressed(Key::Escape)
-                {
-                    self.sound.play(ctx.audio.as_mut(), Sfx::Click);
-                    self.show(Screen::Title);
-                }
-            }
+            Screen::Title => self.title_input(ctx, &layout),
+            Screen::Playing => self.play(ctx, &layout, dt),
+            Screen::Over { .. } => self.over_input(ctx),
         }
     }
 
@@ -404,17 +471,12 @@ impl Game for App {
 
         let mut p = frame.painter(&mut ctx.gfx);
         scene::background(&mut p, w, h);
+
         // The title stands alone; the board only shows once a game is dealt.
         if self.screen != Screen::Title {
-            if self.effects.full() {
-                showcase::glows(&mut p, &base, self.clock, 0.1);
-            }
-            let (session, fx, effects) = (&self.session, &self.fx, self.effects);
-            scene::board(
-                &mut p, &layout, session, fx, self.atlas, self.clock, marks, effects,
-            );
-            self.fx.draw(&mut p, &layout, self.effects);
+            self.draw_board(&mut p, &base, &layout, marks);
         }
+
         match self.screen {
             Screen::Title => {
                 showcase::backdrop(&mut p, &base, self.atlas, self.clock, self.effects);
@@ -428,29 +490,12 @@ impl Game for App {
                 );
             }
             Screen::Playing => {
-                let best = self.bests[self.mode_index()];
-                hud::panel(
-                    &mut p,
-                    &base,
-                    &self.session,
-                    self.shown_score as u64,
-                    best,
-                    self.clock,
-                    self.effects,
-                );
+                self.draw_panel(&mut p, &base);
                 hud::tilt_warning(&mut p, &base, &self.session, self.clock, self.effects);
             }
             Screen::Over { new_best } => {
                 let best = self.bests[self.mode_index()];
-                hud::panel(
-                    &mut p,
-                    &base,
-                    &self.session,
-                    self.shown_score as u64,
-                    best,
-                    self.clock,
-                    self.effects,
-                );
+                self.draw_panel(&mut p, &base);
                 hud::game_over(&mut p, &base, w, h, &self.session, best, new_best);
             }
         }

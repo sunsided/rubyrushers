@@ -1,7 +1,7 @@
 //! Finding the board in a screenshot.
 //!
 //! The board is wherever 64 similar, roughly square, colourful blobs sit on a regular
-//! 8x8 lattice. Nothing about the game's layout is assumed beyond that.
+//! 8×8 lattice. Nothing about the game's layout is assumed beyond that.
 
 use anyhow::{Result, bail};
 
@@ -29,6 +29,7 @@ impl Grid {
     /// Finds the board in `img`. Fails while the board is hidden or too much of it moves.
     pub fn locate(img: &Image) -> Result<Self> {
         let blobs = blobs(img);
+
         // Gem-sized blobs: roughly square, the size most blobs share.
         let mut squares: Vec<&Blob> = blobs
             .iter()
@@ -37,12 +38,15 @@ impl Grid {
                 w >= 12.0 && h >= 12.0 && (0.6..=1.6).contains(&(w / h))
             })
             .collect();
+
         if squares.len() < SIZE * SIZE / 2 {
             bail!("only {} gem-like blobs", squares.len());
         }
+
         let mut sizes: Vec<f32> = squares.iter().map(|b| b.size().0.max(b.size().1)).collect();
         sizes.sort_by(f32::total_cmp);
         let typical = sizes[sizes.len() / 2];
+
         squares.retain(|b| {
             let s = b.size().0.max(b.size().1);
             (typical * 0.7..=typical * 1.3).contains(&s)
@@ -51,15 +55,19 @@ impl Grid {
         // Columns first; only blobs in those columns count for the rows, so text and
         // effects beside the board cannot pass for a row.
         let xs = lattice(squares.iter().map(|b| b.center()[0]), typical)?;
+
         let in_column = |b: &&&Blob| {
             let k = (b.center()[0] - xs.0) / xs.1;
             k > -0.5 && k < SIZE as f32 - 0.5 && (k - k.round()).abs() < 0.2
         };
+
         let ys = lattice(
             squares.iter().filter(in_column).map(|b| b.center()[1]),
             typical,
         )?;
+
         let pitch = (xs.1 + ys.1) / 2.0;
+
         Ok(Self {
             origin: [xs.0 - pitch / 2.0, ys.0 - pitch / 2.0],
             pitch,
@@ -73,22 +81,26 @@ impl Grid {
 fn lattice(centers: impl Iterator<Item = f32>, typical: f32) -> Result<(f32, f32)> {
     let mut cs: Vec<f32> = centers.collect();
     cs.sort_by(f32::total_cmp);
+
     let mut lines: Vec<(f32, usize)> = Vec::new(); // (sum, count)
     let mut last = f32::NEG_INFINITY;
     for c in cs {
         if c - last > typical / 2.0 {
             lines.push((0.0, 0));
         }
+
         let l = lines.last_mut().expect("pushed above");
         l.0 += c;
         l.1 += 1;
         last = c;
     }
+
     let lines: Vec<(f32, usize)> = lines
         .iter()
         .filter(|(_, n)| *n >= 2)
         .map(|(s, n)| (s / *n as f32, *n))
         .collect();
+
     // Of all runs of SIZE evenly spaced lines, the one most blobs sit on.
     let mut best: Option<(usize, f32, f32)> = None;
     for run in lines.windows(SIZE) {
@@ -103,6 +115,7 @@ fn lattice(centers: impl Iterator<Item = f32>, typical: f32) -> Result<(f32, f32
             best = Some((support, first, pitch));
         }
     }
+
     best.map(|(_, first, pitch)| (first, pitch))
         .ok_or_else(|| anyhow::anyhow!("no {SIZE} evenly spaced lines among {}", lines.len()))
 }
@@ -142,46 +155,54 @@ impl Blob {
 fn blobs(img: &Image) -> Vec<Blob> {
     let (w, h) = (img.width, img.height);
     let mask: Vec<bool> = (0..w * h).map(|i| gemlike(img.at(i % w, i / w))).collect();
+
     let mut seen = vec![false; w * h];
     let mut out = Vec::new();
-    let mut stack = Vec::new();
+
     for start in 0..w * h {
-        if !mask[start] || seen[start] {
-            continue;
+        if mask[start] && !seen[start] {
+            let bbox = flood(&mask, &mut seen, start, w);
+            out.push(Blob { bbox });
         }
-        seen[start] = true;
-        stack.push(start);
-        let mut bbox = [start % w, start / w, start % w, start / w];
-        while let Some(i) = stack.pop() {
-            let (x, y) = (i % w, i / w);
-            bbox = [
-                bbox[0].min(x),
-                bbox[1].min(y),
-                bbox[2].max(x),
-                bbox[3].max(y),
-            ];
-            let mut visit = |j: usize| {
-                if mask[j] && !seen[j] {
-                    seen[j] = true;
-                    stack.push(j);
-                }
-            };
-            if x > 0 {
-                visit(i - 1);
-            }
-            if x + 1 < w {
-                visit(i + 1);
-            }
-            if y > 0 {
-                visit(i - w);
-            }
-            if y + 1 < h {
-                visit(i + w);
-            }
-        }
-        out.push(Blob { bbox });
     }
+
     out
+}
+
+/// Marks the 4-connected patch of `mask` around pixel `start` as `seen` (an image `w`
+/// pixels wide, row-major) and returns its bounding box.
+fn flood(mask: &[bool], seen: &mut [bool], start: usize, w: usize) -> [usize; 4] {
+    let h = mask.len() / w;
+    let mut stack = vec![start];
+    let mut bbox = [start % w, start / w, start % w, start / w];
+    seen[start] = true;
+
+    while let Some(i) = stack.pop() {
+        let (x, y) = (i % w, i / w);
+
+        bbox = [
+            bbox[0].min(x),
+            bbox[1].min(y),
+            bbox[2].max(x),
+            bbox[3].max(y),
+        ];
+
+        let neighbours = [
+            (x > 0).then(|| i - 1),
+            (x + 1 < w).then(|| i + 1),
+            (y > 0).then(|| i - w),
+            (y + 1 < h).then(|| i + w),
+        ];
+
+        for j in neighbours.into_iter().flatten() {
+            if mask[j] && !seen[j] {
+                seen[j] = true;
+                stack.push(j);
+            }
+        }
+    }
+
+    bbox
 }
 
 #[cfg(test)]
@@ -199,7 +220,7 @@ pub(crate) mod tests {
         [235, 240, 255],
     ];
 
-    /// A dark screen with an 8x8 board of filled squares at `origin`/`pitch` coloured by
+    /// A dark screen with an 8×8 board of filled squares at `origin`/`pitch` coloured by
     /// `class(x, y)`, plus some bright text-like specks on the left.
     pub fn synthetic(
         origin: [usize; 2],
@@ -207,35 +228,45 @@ pub(crate) mod tests {
         class: impl Fn(usize, usize) -> usize,
     ) -> Image {
         let mut img = Image::filled(1000, 760, [20, 14, 40]);
+
         for gy in 0..SIZE {
             for gx in 0..SIZE {
-                let c = PALETTE[class(gx, gy)];
-                let inset = pitch / 8;
-                for y in inset..pitch - inset {
-                    for x in inset..pitch - inset {
-                        img.set(origin[0] + gx * pitch + x, origin[1] + gy * pitch + y, c);
-                    }
-                }
+                let corner = [origin[0] + gx * pitch, origin[1] + gy * pitch];
+                square(&mut img, corner, pitch, PALETTE[class(gx, gy)]);
             }
         }
+
         // "Text": thin bright strokes.
         for i in 0..20 {
             for y in 40..70 {
                 img.set(30 + i * 9, y, [255, 255, 255]);
             }
         }
+
         img
+    }
+
+    /// Fills the cell of side `pitch` at `corner`, leaving a margin of an eighth.
+    fn square(img: &mut Image, corner: [usize; 2], pitch: usize, c: [u8; 3]) {
+        let inset = pitch / 8;
+        for y in inset..pitch - inset {
+            for x in inset..pitch - inset {
+                img.set(corner[0] + x, corner[1] + y, c);
+            }
+        }
     }
 
     #[test]
     fn finds_a_synthetic_board() {
         let img = synthetic([300, 50], 80, |x, y| (x * 3 + y) % 7);
+
         let g = Grid::locate(&img).unwrap();
         assert!((g.pitch - 80.0).abs() < 1.0, "{g:?}");
         assert!(
             (g.origin[0] - 300.0).abs() < 2.0 && (g.origin[1] - 50.0).abs() < 2.0,
             "{g:?}"
         );
+
         let c = g.center(7, 7);
         assert!((c[0] - (300.0 + 7.5 * 80.0)).abs() < 2.0);
     }

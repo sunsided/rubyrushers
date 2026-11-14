@@ -18,7 +18,7 @@ pub struct Screen {
 }
 
 impl Screen {
-    /// Opens `url` with a `width` x `height` page; `visible` shows the window instead of
+    /// Opens `url` with a `width` × `height` page; `visible` shows the window instead of
     /// running headless.
     pub fn open(url: &str, width: u32, height: u32, visible: bool) -> Result<Self> {
         let mut args = vec![
@@ -28,9 +28,11 @@ impl Screen {
             "--disable-renderer-backgrounding".into(),
             "--disable-backgrounding-occluded-windows".into(),
         ];
+
         if !visible {
             args.push("--headless=new".into());
         }
+
         if std::env::var_os("BOT_SOFTWARE_GL").is_some() {
             // Software WebGL for machines without a GPU (slow).
             args.extend(["--use-angle=swiftshader", "--enable-unsafe-swiftshader"].map(Into::into));
@@ -47,34 +49,43 @@ impl Screen {
                 .map(Into::into),
             );
         }
+
         let mut cdp = Cdp::launch(&args)?;
-        // The page gets exactly width x height, whatever the window's toolbars take.
+
+        // The page gets exactly width × height, whatever the window's toolbars take.
         cdp.call(
             "Emulation.setDeviceMetricsOverride",
             json!({ "width": width, "height": height, "deviceScaleFactor": 1, "mobile": false }),
         )?;
+
         let mut screen = Self {
             cdp,
             scale: 1.0,
             clip: None,
         };
+
         screen.goto(url)?;
+
         let shot = screen.screenshot()?;
         let css_width = screen.eval("window.innerWidth", false)?;
         screen.scale = shot.width as f64 / css_width.as_f64().unwrap_or(shot.width as f64);
+
         Ok(screen)
     }
 
     /// Loads `url` and waits until the game's canvas is on the page.
     pub fn goto(&mut self, url: &str) -> Result<()> {
         self.cdp.call("Page.navigate", json!({ "url": url }))?;
+
         let ready = "!!document.querySelector('canvas') && document.readyState === 'complete'";
         for _ in 0..200 {
             if self.eval(ready, false)?.as_bool() == Some(true) {
                 return Ok(());
             }
+
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+
         Err(anyhow!("the page at {url} did not load"))
     }
 
@@ -85,6 +96,7 @@ impl Screen {
             "Runtime.evaluate",
             json!({ "expression": expression, "returnByValue": true, "awaitPromise": promise }),
         )?;
+
         Ok(r["result"]["value"].clone())
     }
 
@@ -102,25 +114,30 @@ impl Screen {
     /// What the page shows now (or the clip rectangle), as PNG bytes.
     pub fn png(&mut self) -> Result<Vec<u8>> {
         let mut params = json!({ "format": "png", "fromSurface": true, "optimizeForSpeed": true });
+
         if let Some([x, y, w, h]) = self.clip {
             let s = self.scale as f32;
             params["clip"] =
                 json!({ "x": x / s, "y": y / s, "width": w / s, "height": h / s, "scale": 1 });
         }
+
         let r = self.cdp.call("Page.captureScreenshot", params)?;
         let data = r["data"].as_str().context("no screenshot data")?;
+
         Ok(base64::engine::general_purpose::STANDARD.decode(data)?)
     }
 
     /// Clicks at screenshot pixel `at`.
     pub fn click(&mut self, at: [f32; 2]) -> Result<()> {
         let (x, y) = (f64::from(at[0]) / self.scale, f64::from(at[1]) / self.scale);
+
         for (kind, buttons) in [("mouseMoved", 0), ("mousePressed", 1), ("mouseReleased", 0)] {
             self.cdp.call(
                 "Input.dispatchMouseEvent",
                 json!({ "type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1 }),
             )?;
         }
+
         Ok(())
     }
 
@@ -129,6 +146,7 @@ impl Screen {
         let js = "new Promise(r => { let n = 0; const t0 = performance.now(); \
                   const f = () => { n++; if (performance.now() - t0 < 1000) requestAnimationFrame(f); else r(n); }; \
                   requestAnimationFrame(f); })";
+
         Ok(self.eval(js, true)?.as_f64().unwrap_or(0.0))
     }
 }

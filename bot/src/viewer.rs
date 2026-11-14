@@ -54,6 +54,7 @@ static SHOT: Mutex<Option<PathBuf>> = Mutex::new(None);
 /// the bot is done and the window saved a picture of itself there.
 pub fn show(shot: Option<PathBuf>) -> Result<()> {
     *SHOT.lock().expect("not poisoned") = shot;
+
     game_toolkit::prelude::run::<Viewer>(AppConfig {
         title: "RubyRushers bot: what it sees and thinks".into(),
         width: W as u32,
@@ -91,12 +92,14 @@ impl Game for Viewer {
             ctx.quit();
             return;
         }
+
         if insight::FINISHED.load(Ordering::Relaxed)
             && let Some(path) = SHOT.lock().expect("not poisoned").take()
         {
             ctx.gfx.request_screenshot(path);
             self.quit_next = true;
         }
+
         let Some(new) = insight::LATEST
             .lock()
             .expect("the bot does not panic")
@@ -104,6 +107,7 @@ impl Game for Viewer {
         else {
             return;
         };
+
         let img = &new.crop;
         let rgba: Vec<u8> = img
             .rgb
@@ -112,6 +116,7 @@ impl Game for Viewer {
             .iter()
             .flat_map(|&[r, g, b]| [r, g, b, 255])
             .collect();
+
         let size = [img.width, img.height];
         match self.crop {
             Some((tex, s)) if s == size => ctx.gfx.update_texture_rgba(tex, &rgba),
@@ -125,9 +130,11 @@ impl Game for Viewer {
                 self.crop = Some((tex, size));
             }
         }
+
         if new.plan.is_some() {
             self.plan.clone_from(&new.plan);
         }
+
         self.shown = Some(new);
     }
 
@@ -135,6 +142,7 @@ impl Game for Viewer {
         let (w, h) = ctx.gfx.size();
         let v = View::fit(w as f32, h as f32);
         let mut p = frame.painter(&mut ctx.gfx);
+
         p.rect_ex(
             [0.0, 0.0],
             [w as f32, h as f32],
@@ -142,6 +150,7 @@ impl Game for Viewer {
             Layer(0),
             BlendMode::Alpha,
         );
+
         let Some(i) = &self.shown else {
             v.text(
                 &mut p,
@@ -153,46 +162,14 @@ impl Game for Viewer {
             );
             return;
         };
+
         let status = if insight::FINISHED.load(Ordering::Relaxed) {
             format!("done: {} moves in {:.0} s", i.moves, i.elapsed)
         } else {
             i.status.clone()
         };
-        v.text(
-            &mut p,
-            [30.0, 22.0],
-            "What the bot sees and thinks",
-            28.0,
-            Color::WHITE,
-            Align::Left,
-        );
-        v.text(&mut p, [W - 30.0, 28.0], &status, 20.0, MUTED, Align::Right);
 
-        let titles = [
-            ("Sees", "a screenshot of the board"),
-            ("Reads", "solid: trusted   hollow: not yet   ?: unreadable"),
-            ("Expects", "after its move settles   ?: gems still to come"),
-        ];
-        for (k, (title, note)) in titles.iter().enumerate() {
-            let x = LEFTS[k];
-            v.text(
-                &mut p,
-                [x, TOP - 34.0],
-                title,
-                22.0,
-                Color::WHITE,
-                Align::Left,
-            );
-            v.text(
-                &mut p,
-                [x + 90.0, TOP - 28.0],
-                note,
-                13.0,
-                MUTED,
-                Align::Left,
-            );
-            v.frame(&mut p, [x, TOP]);
-        }
+        headings(&mut p, &v, &status);
 
         // Sees: the captured board.
         if let Some((tex, _)) = self.crop {
@@ -202,34 +179,11 @@ impl Game for Viewer {
                 .region(g.origin, [side, side])
                 .layer(SHAPES);
         }
-        // Reads: the tiles, trusted or not, and the busy cells.
-        let cell = SIDE / SIZE as f32;
-        for y in 0..SIZE {
-            for x in 0..SIZE {
-                let at = [LEFTS[1] + x as f32 * cell, TOP + y as f32 * cell];
-                v.tile(&mut p, at, i.read[y][x], i.trusted[y][x] != Tile::Unknown);
-                if i.busy[y][x] {
-                    v.outline(&mut p, at, cell, 2.0, BUSY);
-                }
-            }
-        }
-        // Expects: the board after the last move, what changed, and the next move.
+
+        reads(&mut p, &v, i);
+
         if let Some(plan) = &self.plan {
-            for y in 0..SIZE {
-                for x in 0..SIZE {
-                    let at = [LEFTS[2] + x as f32 * cell, TOP + y as f32 * cell];
-                    if plan.after[y][x] != plan.before[y][x] {
-                        v.rect(&mut p, at, [cell, cell], Color::rgba(1.0, 0.9, 0.4, 0.12));
-                    }
-                    v.tile(&mut p, at, plan.after[y][x], true);
-                }
-            }
-            for left in &LEFTS[..2] {
-                v.swap(&mut p, *left, plan.swap, MOVE);
-            }
-            if let Some((next, _)) = plan.next {
-                v.swap(&mut p, LEFTS[2], next, NEXT);
-            }
+            expects(&mut p, &v, plan);
         }
 
         candidates(&mut p, &v, self.plan.as_ref());
@@ -237,9 +191,75 @@ impl Game for Viewer {
     }
 }
 
+/// The window title, the status, and the title and legend above each board.
+fn headings(p: &mut Painter<'_>, v: &View, status: &str) {
+    v.text(
+        p,
+        [30.0, 22.0],
+        "What the bot sees and thinks",
+        28.0,
+        Color::WHITE,
+        Align::Left,
+    );
+
+    v.text(p, [W - 30.0, 28.0], status, 20.0, MUTED, Align::Right);
+
+    let titles = [
+        ("Sees", "a screenshot of the board"),
+        ("Reads", "solid: trusted   hollow: not yet   ?: unreadable"),
+        ("Expects", "after its move settles   ?: gems still to come"),
+    ];
+    for (k, (title, note)) in titles.iter().enumerate() {
+        let x = LEFTS[k];
+        v.text(p, [x, TOP - 34.0], title, 22.0, Color::WHITE, Align::Left);
+
+        v.text(p, [x + 90.0, TOP - 28.0], note, 13.0, MUTED, Align::Left);
+
+        v.frame(p, [x, TOP]);
+    }
+}
+
+/// **Reads**: the tiles, trusted or not, and the busy cells.
+fn reads(p: &mut Painter<'_>, v: &View, i: &Insight) {
+    let cell = SIDE / SIZE as f32;
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let at = [LEFTS[1] + x as f32 * cell, TOP + y as f32 * cell];
+            v.tile(p, at, i.read[y][x], i.trusted[y][x] != Tile::Unknown);
+            if i.busy[y][x] {
+                v.outline(p, at, cell, 2.0, BUSY);
+            }
+        }
+    }
+}
+
+/// **Expects**: the board after the last move, what changed, and the next move.
+fn expects(p: &mut Painter<'_>, v: &View, plan: &Plan) {
+    let cell = SIDE / SIZE as f32;
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let at = [LEFTS[2] + x as f32 * cell, TOP + y as f32 * cell];
+            if plan.after[y][x] != plan.before[y][x] {
+                v.rect(p, at, [cell, cell], Color::rgba(1.0, 0.9, 0.4, 0.12));
+            }
+
+            v.tile(p, at, plan.after[y][x], true);
+        }
+    }
+
+    for left in &LEFTS[..2] {
+        v.swap(p, *left, plan.swap, MOVE);
+    }
+
+    if let Some((next, _)) = plan.next {
+        v.swap(p, LEFTS[2], next, NEXT);
+    }
+}
+
 /// The moves weighed for the last move made, best first: the one it made on top.
 fn candidates(p: &mut Painter<'_>, v: &View, plan: Option<&Plan>) {
     let top = TOP + SIDE + 40.0;
+
     v.text(
         p,
         [LEFTS[0], top],
@@ -248,21 +268,26 @@ fn candidates(p: &mut Painter<'_>, v: &View, plan: Option<&Plan>) {
         Color::WHITE,
         Align::Left,
     );
+
     let cols = [0.0, 190.0, 270.0, 370.0, 460.0, 550.0].map(|x| LEFTS[0] + x);
     let heads = ["swap", "now", "later", "leaves", "worth", "lowest row"];
     for (x, h) in cols.iter().zip(heads) {
         v.text(p, [*x, top + 34.0], h, 14.0, MUTED, Align::Left);
     }
+
     let weighed = plan.map_or(&[][..], |pl| &pl.candidates);
     for (row, &(swap, value)) in weighed.iter().enumerate() {
         let y = top + 58.0 + row as f32 * 22.0;
+
         let color = if row == 0 { MOVE } else { MUTED };
+
         let Value {
             gain,
             total,
             left,
             depth,
         } = value;
+
         let cells = [
             swap_text(swap),
             gain.to_string(),
@@ -271,6 +296,7 @@ fn candidates(p: &mut Painter<'_>, v: &View, plan: Option<&Plan>) {
             format!("{total:.1}"),
             depth.to_string(),
         ];
+
         for (x, c) in cols.iter().zip(cells) {
             v.text(p, [*x, y], &c, 16.0, color, Align::Left);
         }
@@ -280,9 +306,12 @@ fn candidates(p: &mut Painter<'_>, v: &View, plan: Option<&Plan>) {
 /// Moves, time and what each step of a round costs.
 fn stats(p: &mut Painter<'_>, v: &View, i: &Insight) {
     let (x, top) = (LEFTS[2], TOP + SIDE + 40.0);
+
     v.text(p, [x, top], "Pace", 22.0, Color::WHITE, Align::Left);
+
     let rate = i.moves as f32 / i.elapsed.max(0.001);
     let [capture, read, solve, click] = i.timings;
+
     let lines = [
         format!(
             "{} moves in {:.0} s ({rate:.1} a second)",
@@ -291,6 +320,7 @@ fn stats(p: &mut Painter<'_>, v: &View, i: &Insight) {
         format!("capture {capture:.0} ms   read {read:.1} ms"),
         format!("solve {solve:.1} ms   click {click:.0} ms"),
     ];
+
     for (k, l) in lines.iter().enumerate() {
         v.text(
             p,
@@ -301,13 +331,16 @@ fn stats(p: &mut Painter<'_>, v: &View, i: &Insight) {
             Align::Left,
         );
     }
+
     let legend = [
         (MOVE, "the move it made"),
         (NEXT, "the move that one sets up"),
         (BUSY, "cells its moves still change"),
     ];
+
     for (k, (c, l)) in legend.iter().enumerate() {
         let y = top + 120.0 + k as f32 * 22.0;
+
         v.rect(p, [x, y + 3.0], [14.0, 14.0], *c);
         v.text(p, [x + 24.0, y], l, 15.0, MUTED, Align::Left);
     }
@@ -331,6 +364,7 @@ fn tile_color(t: Tile) -> Color {
 fn hue(degrees: f32) -> Color {
     let h = degrees.rem_euclid(360.0) / 60.0;
     let x = 1.0 - (h % 2.0 - 1.0).abs();
+
     let (r, g, b) = match h as u32 {
         0 => (1.0, x, 0.0),
         1 => (x, 1.0, 0.0),
@@ -339,6 +373,7 @@ fn hue(degrees: f32) -> Color {
         4 => (x, 0.0, 1.0),
         _ => (1.0, 0.0, x),
     };
+
     let lift = |c: f32| 0.15 + 0.8 * c;
     Color::rgb(lift(r), lift(g), lift(b))
 }
@@ -352,9 +387,10 @@ struct View {
 }
 
 impl View {
-    /// Fits the design into a `w` x `h` window.
+    /// Fits the design into a `w` × `h` window.
     fn fit(w: f32, h: f32) -> Self {
         let scale = (w / W).min(h / H);
+
         Self {
             scale,
             offset: [(w - W * scale) / 2.0, (h - H * scale) / 2.0],
@@ -409,6 +445,7 @@ impl View {
     /// A board's backing and frame at `at`.
     fn frame(&self, p: &mut Painter<'_>, at: [f32; 2]) {
         self.rect(p, at, [SIDE, SIDE], Color::rgb(0.1, 0.09, 0.16));
+
         p.rect_outline_ex(
             self.px([at[0] - 2.0, at[1] - 2.0]),
             [self.len(SIDE + 4.0); 2],
@@ -424,6 +461,7 @@ impl View {
         let cell = SIDE / SIZE as f32;
         let c = self.px([at[0] + cell / 2.0, at[1] + cell / 2.0]);
         let r = self.len(cell * 0.36);
+
         match t {
             Tile::Unknown => {
                 let mid = [at[0] + cell / 2.0, at[1] + cell * 0.22];
@@ -432,6 +470,7 @@ impl View {
             _ => {
                 let width = if solid { 0.0 } else { self.len(2.5) };
                 p.circle_ex(c, r, width, tile_color(t), SHAPES);
+
                 if t == Tile::Wild {
                     let mid = [at[0] + cell / 2.0, at[1] + cell * 0.25];
                     self.text(p, mid, "W", 18.0, Color::rgb(0.1, 0.1, 0.2), Align::Center);
@@ -444,16 +483,20 @@ impl View {
     /// and a bar between them.
     fn swap(&self, p: &mut Painter<'_>, left: f32, (a, b): Swap, c: Color) {
         let cell = SIDE / SIZE as f32;
+
         let mid = |q: [usize; 2]| {
             self.px([
                 left + (q[0] as f32 + 0.5) * cell,
                 TOP + (q[1] as f32 + 0.5) * cell,
             ])
         };
+
         let (pa, pb) = (mid(a), mid(b));
+
         for q in [pa, pb] {
             p.circle_ex(q, self.len(cell * 0.47), self.len(3.0), c, MARKS);
         }
+
         p.line_ex(pa, pb, self.len(4.0), c, MARKS, BlendMode::Alpha);
     }
 }

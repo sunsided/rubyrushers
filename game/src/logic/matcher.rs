@@ -28,33 +28,41 @@ struct Run {
 /// the reward gems); pass none for cascades.
 pub fn find(board: &Board, moved: &[Pos]) -> Vec<Group> {
     let runs = runs(board);
-    // Runs that share a cell form one group (an L, T or plus).
+
+    joined(&runs)
+        .iter()
+        .map(|members| group(members, moved))
+        .collect()
+}
+
+/// Runs that share a cell, joined: the runs of each group (an L, T or plus).
+fn joined(runs: &[Run]) -> Vec<Vec<&Run>> {
     let mut component: Vec<usize> = (0..runs.len()).collect();
+
     for i in 0..runs.len() {
         for j in 0..i {
             if runs[i].cells.iter().any(|c| runs[j].cells.contains(c)) {
                 let (from, to) = (component[i], component[j]);
-                for k in &mut component {
-                    if *k == from {
-                        *k = to;
-                    }
-                }
+                component
+                    .iter_mut()
+                    .filter(|k| **k == from)
+                    .for_each(|k| *k = to);
             }
         }
     }
+
     let mut roots: Vec<usize> = component.clone();
     roots.sort_unstable();
     roots.dedup();
+
     roots
         .into_iter()
         .map(|root| {
-            let members: Vec<&Run> = runs
-                .iter()
+            runs.iter()
                 .zip(&component)
                 .filter(|(_, c)| **c == root)
                 .map(|(r, _)| r)
-                .collect();
-            group(&members, moved)
+                .collect()
         })
         .collect()
 }
@@ -64,8 +72,10 @@ fn group(members: &[&Run], moved: &[Pos]) -> Group {
     let mut cells: Vec<Pos> = members.iter().flat_map(|r| r.cells.clone()).collect();
     cells.sort_unstable();
     cells.dedup();
+
     let longest = members.iter().map(|r| r.cells.len()).max().unwrap_or(0);
     let both = members.iter().any(|r| r.horizontal) && members.iter().any(|r| !r.horizontal);
+
     let reward = if longest >= 5 {
         Power::Wild
     } else if both {
@@ -75,6 +85,7 @@ fn group(members: &[&Run], moved: &[Pos]) -> Group {
     } else {
         Power::None
     };
+
     let crossing = || {
         cells.iter().copied().find(|c| {
             members.iter().any(|r| r.horizontal && r.cells.contains(c))
@@ -87,6 +98,7 @@ fn group(members: &[&Run], moved: &[Pos]) -> Group {
         .find(|m| cells.contains(m))
         .or_else(crossing)
         .unwrap_or(cells[cells.len() / 2]);
+
     Group {
         cells,
         reward,
@@ -97,6 +109,7 @@ fn group(members: &[&Run], moved: &[Pos]) -> Group {
 /// Every maximal straight line of three or more matching gems.
 fn runs(board: &Board) -> Vec<Run> {
     let mut runs = Vec::new();
+
     for horizontal in [true, false] {
         for line in 0..SIZE {
             let at = |i| {
@@ -106,24 +119,37 @@ fn runs(board: &Board) -> Vec<Run> {
                     Pos::new(line, i)
                 }
             };
-            let mut start = 0;
-            while start < SIZE {
-                let mut end = start + 1;
-                if let Some(first) = board.get(at(start)) {
-                    while end < SIZE && board.get(at(end)).is_some_and(|g| g.matches(&first)) {
-                        end += 1;
-                    }
-                    if end - start >= 3 && first.power != Power::Wild {
-                        runs.push(Run {
-                            cells: (start..end).map(at).collect(),
-                            horizontal,
-                        });
-                    }
-                }
-                start = end;
-            }
+            let along = runs_along(board, at);
+            runs.extend(along.into_iter().map(|cells| Run { cells, horizontal }));
         }
     }
+
+    runs
+}
+
+/// The cells of each run of three or more matching gems along one row or column; `at`
+/// turns a position along it into a cell. Wilds start no run.
+fn runs_along(board: &Board, at: impl Fn(i32) -> Pos) -> Vec<Vec<Pos>> {
+    let mut runs = Vec::new();
+    let mut start = 0;
+
+    while start < SIZE {
+        let Some(first) = board.get(at(start)) else {
+            start += 1;
+            continue;
+        };
+
+        let end = (start + 1..SIZE)
+            .find(|&i| !board.get(at(i)).is_some_and(|g| g.matches(&first)))
+            .unwrap_or(SIZE);
+
+        if end - start >= 3 && first.power != Power::Wild {
+            runs.push((start..end).map(&at).collect());
+        }
+
+        start = end;
+    }
+
     runs
 }
 
@@ -132,6 +158,7 @@ pub fn lines_up_at(board: &Board, p: Pos) -> bool {
     let Some(gem) = board.get(p) else {
         return false;
     };
+
     let count = |dx: i32, dy: i32| {
         (1..)
             .take_while(|&i| {
@@ -141,6 +168,7 @@ pub fn lines_up_at(board: &Board, p: Pos) -> bool {
             })
             .count()
     };
+
     gem.power != Power::Wild && (count(-1, 0) + count(1, 0) >= 2 || count(0, -1) + count(0, 1) >= 2)
 }
 
