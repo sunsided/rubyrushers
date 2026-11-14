@@ -46,8 +46,9 @@ title. Linux needs `libasound2-dev libdbus-1-dev libudev-dev pkg-config`.
 ## The bot
 
 `bot/` is an autoplayer that sees the game only through screenshots, successor to
-[rubyrush](https://github.com/sunsided/rubyrush). It never links the game: it finds the
-board as a lattice of gem-shaped blobs, reads each gem by its hue, picks a swap with its
+[rubyrush](https://github.com/sunsided/rubyrush) and the main reason this game exists
+in the first place. To keep things fair while cheating, it never links the game: it finds
+the board as a lattice of gem-shaped blobs, reads each gem by its hue, picks a swap with its
 own idea of the rules, and clicks, in a Chromium it drives over the DevTools protocol.
 
 ```sh
