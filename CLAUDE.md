@@ -21,7 +21,9 @@ the toolkit sources.
 - `src/app.rs` - the only glue between input, logic, view and sound.
 - `bot/` - the autoplayer (workspace member). It must never depend on the game crate
   outside `[dev-dependencies]`: only its accuracy harness (`bot/tests/accuracy.rs`) may
-  look at the game's state, to grade what the bot read from pixels.
+  look at the game's state, to grade what the bot read from pixels. `--watch` plays on a
+  worker thread and shows each round (`insight::Insight`) in a game-toolkit window
+  (`viewer.rs`); the toolkit is a normal dependency, the game crate is not.
 
 ## Conventions
 

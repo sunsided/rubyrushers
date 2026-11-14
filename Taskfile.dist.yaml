@@ -50,6 +50,20 @@ tasks:
       - trunk build --release
       - cargo run -p rubyrushers-bot --release -- --dist dist {{.CLI_ARGS}}
 
+  bot:watch:
+    desc: "Let the bot play with full effects and show what it sees and thinks (task bot:watch -- --mode tilt)"
+    preconditions: *web-preconditions-bot
+    cmds:
+      - trunk build --release
+      - cargo run -p rubyrushers-bot --release -- --dist dist --full --watch {{.CLI_ARGS}}
+
+  bot:endless:
+    desc: "Watch the bot play Endless with full effects until no move is left (task bot:endless -- --seed 3)"
+    preconditions: *web-preconditions-bot
+    cmds:
+      - trunk build --release
+      - cargo run -p rubyrushers-bot --release -- --dist dist --mode endless --full --watch {{.CLI_ARGS}}
+
   bot:accuracy:
     desc: Grade the bot's board reading against seeded games in the web build (needs Chrome)
     preconditions: *web-preconditions-bot

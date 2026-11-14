@@ -3,18 +3,21 @@
 //!
 //! It never links the game. Everything it knows comes from pixels: [`grid`] finds the
 //! board, [`read`] tells the gems apart, [`solver`] picks a swap with its own idea of
-//! the rules, and [`browser`] takes screenshots and clicks.
+//! the rules, and [`browser`] takes screenshots and clicks. [`viewer`] shows all of that
+//! live in a window of its own (`--watch`).
 
 pub mod board;
 pub mod browser;
 pub mod cdp;
 pub mod grid;
 pub mod image;
+pub mod insight;
 pub mod read;
 pub mod serve;
 pub mod sim;
 pub mod solver;
 pub mod tile;
+pub mod viewer;
 
 pub use board::{Board, SIZE};
 pub use grid::Grid;

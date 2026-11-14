@@ -6,9 +6,9 @@ use crate::image::{Image, hsv};
 use crate::tile::Tile;
 
 /// Hue (degrees) of each colour class, white aside.
-const HUES: [f32; 6] = [352.0, 29.0, 49.0, 138.0, 220.0, 274.0];
+pub const HUES: [f32; 6] = [352.0, 29.0, 49.0, 138.0, 220.0, 274.0];
 /// The class of white gems.
-const WHITE: u8 = 6;
+pub const WHITE: u8 = 6;
 
 /// Reads every cell of the board.
 pub fn board(img: &Image, grid: &Grid) -> Board {

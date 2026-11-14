@@ -53,6 +53,8 @@ own idea of the rules, and clicks, in a Chromium it drives over the DevTools pro
 ```sh
 task bot                              # headless, Rush, calm effects
 task bot -- --mode tilt --visible     # watch it play
+task bot:watch                        # ... and see what it sees and thinks
+task bot:endless                      # watch it play Endless, until no move is left
 task bot:accuracy                     # grade its reading against seeded games
 ```
 
@@ -60,8 +62,17 @@ It reads boards perfectly in both effect levels and plays as fast as it can: any
 two readings in a row agree on is fair game, without waiting for the board to rest.
 Each candidate swap is simulated until the board settles (matches, special gems,
 gravity, cascades; new gems unknown), and scored with the best follow-up on that
-predicted board, so a small match that sets up a big one can win. Next: special gems,
-gravity in Tilt, deeper search.
+predicted board, so a small match that sets up a big one can win. In Endless, where
+running out of moves ends the game, it waits for the board to settle and also values
+the moves a swap leaves open. Next: special gems, gravity in Tilt, deeper search.
+
+`--watch` opens a window beside the game with the bot's view, live: the pixels it
+captured, the tiles it read from them (solid where it trusts them, hollow where two
+readings disagreed, framed where its own moves are still at work), the board it expects
+once its move has settled, the move that sets up next, and every move it weighed.
+
+![The bot's view: the captured board, the tiles it read, the board it expects after its
+move, and the moves it weighed](docs/bot-watch.png)
 
 ## License
 
