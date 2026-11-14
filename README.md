@@ -3,6 +3,8 @@
 A fast match-three gem game built on [game-toolkit](https://github.com/sunsided/game-toolkit).
 Swap neighbouring gems to line up three or more; bigger lines leave special gems behind.
 
+**[Play it in the browser](https://sunsided.github.io/rubyrushers/)**
+
 <p>
   <img src="docs/rush.png" alt="Rush mode mid-game: sparks, score popups, a bomb going off and time gems" width="49%">
   <img src="docs/tilt.png" alt="Tilt mode: arrows warn that gravity is about to turn left" width="49%">
