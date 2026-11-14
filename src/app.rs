@@ -15,6 +15,9 @@ use crate::sound::{Sfx, Sound};
 
 /// Seconds without input before a move is suggested.
 const HINT_AFTER: f32 = 6.0;
+/// Seconds the title and game-over screens ignore the mouse after they come up, so that
+/// clicks meant for the board do not dismiss the final score or start a new game.
+const CLICK_GRACE: f32 = 0.6;
 /// Drag distance, in cells, that counts as a swipe.
 const SWIPE_CELLS: f32 = 0.4;
 
@@ -71,8 +74,10 @@ enum Screen {
 
 /// The game.
 pub struct App {
-    /// The screen that is up.
+    /// The screen that is up; change it with [`App::show`].
     screen: Screen,
+    /// `clock` when `screen` came up.
+    shown_at: f32,
     /// The game being played (or shown behind the title).
     session: Session,
     /// The gem atlas.
@@ -108,6 +113,17 @@ pub struct App {
 }
 
 impl App {
+    /// Brings up `screen`.
+    fn show(&mut self, screen: Screen) {
+        self.screen = screen;
+        self.shown_at = self.clock;
+    }
+
+    /// Whether the left button went down this frame, outside the screen's grace period.
+    fn mouse_pressed(&self, ctx: &Context) -> bool {
+        ctx.input.mouse_pressed(MouseButton::Left) && self.clock - self.shown_at >= CLICK_GRACE
+    }
+
     /// Starts a new game of `mode`.
     fn start(&mut self, mode: Mode) {
         // `--seed` deals exactly the first game; later ones step on from it.
@@ -120,7 +136,7 @@ impl App {
         self.idle = 0.0;
         self.shown_score = 0.0;
         self.shown_target = 0;
-        self.screen = Screen::Playing;
+        self.show(Screen::Playing);
     }
 
     /// Index of the current mode in the title's button order.
@@ -198,7 +214,7 @@ impl App {
                         self.bests[i] = self.session.score();
                         scores::save(&self.bests);
                     }
-                    self.screen = Screen::Over { new_best };
+                    self.show(Screen::Over { new_best });
                     self.selected = None;
                     Some(Sfx::Over)
                 }
@@ -272,6 +288,7 @@ impl Game for App {
         let session = Session::new(Mode::Endless, seed);
         let mut app = Self {
             screen: Screen::Title,
+            shown_at: 0.0,
             session,
             atlas,
             fx: Fx::default(),
@@ -318,9 +335,8 @@ impl Game for App {
         match self.screen {
             Screen::Title => {
                 let (mx, my) = ctx.input.mouse_pos();
-                let clicked = ctx
-                    .input
-                    .mouse_pressed(MouseButton::Left)
+                let clicked = self
+                    .mouse_pressed(ctx)
                     .then(|| hud::button_at(layout.design([mx, my])))
                     .flatten();
                 let key = if ctx.input.key_pressed(Key::Digit1) {
@@ -341,7 +357,7 @@ impl Game for App {
             }
             Screen::Playing => {
                 if ctx.input.key_pressed(Key::Escape) {
-                    self.screen = Screen::Title;
+                    self.show(Screen::Title);
                     return;
                 }
                 self.board_input(ctx, &layout);
@@ -356,12 +372,12 @@ impl Game for App {
                 }
             }
             Screen::Over { .. } => {
-                if ctx.input.mouse_pressed(MouseButton::Left)
+                if self.mouse_pressed(ctx)
                     || ctx.input.key_pressed(Key::Enter)
                     || ctx.input.key_pressed(Key::Escape)
                 {
                     self.sound.play(ctx.audio.as_mut(), Sfx::Click);
-                    self.screen = Screen::Title;
+                    self.show(Screen::Title);
                 }
             }
         }
