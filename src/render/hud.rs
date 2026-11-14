@@ -4,6 +4,7 @@ use game_toolkit::prelude::*;
 
 use super::effects::Effects;
 use super::layout::{BOARD, BOARD_SIZE, DESIGN_H, DESIGN_W, Layout};
+use super::showcase;
 use crate::logic::mode::RUSH_SECS;
 use crate::logic::mode::WARN_SECS;
 use crate::logic::score;
@@ -205,28 +206,37 @@ fn dim(p: &mut Painter<'_>, w: f32, h: f32, alpha: f32) {
     );
 }
 
-/// The title screen over a dimmed board: name and one button per mode.
+/// The title screen: the name and one button per mode. With full effects the name's
+/// letters bob and run through the gem colours, and the button frames shimmer.
 pub fn title(
     p: &mut Painter<'_>,
     l: &Layout,
-    w: f32,
-    h: f32,
     bests: &crate::scores::Bests,
     hover: Option<usize>,
     time: f32,
+    effects: Effects,
 ) {
-    dim(p, w, h, 0.95);
+    let full = effects.full();
     let cx = DESIGN_W / 2.0;
-    let wobble = 4.0 * (time * 2.0).sin();
-    text(
-        p,
-        l,
-        [cx, 120.0 + wobble],
-        "RUBY RUSHERS",
-        72.0,
-        ACCENT,
-        Align::Center,
-    );
+    let name = "RUBY RUSHERS";
+    if full {
+        // Letter by letter, each placed after the width of the text before it.
+        let px = l.len(72.0);
+        let width = p.measure_text(name, px)[0];
+        let left = l.px([cx, 0.0])[0] - width / 2.0;
+        for (j, ch) in name.char_indices() {
+            let x = left + p.measure_text(&name[..j], px)[0];
+            let k = j as f32;
+            let y = l.px([0.0, 120.0 + 7.0 * (time * 3.0 - k * 0.45).sin()])[1];
+            p.draw_text([x, y], &ch.to_string())
+                .size(px)
+                .color(showcase::rainbow(time * 1.2 - k * 0.35))
+                .align(Align::Left)
+                .layer(HUD);
+        }
+    } else {
+        text(p, l, [cx, 120.0], name, 72.0, ACCENT, Align::Center);
+    }
     text(
         p,
         l,
@@ -260,7 +270,11 @@ pub fn title(
             l.px(pos),
             [l.len(size[0]), l.len(size[1])],
             l.len(2.0),
-            ACCENT,
+            if full {
+                showcase::rainbow(time * 0.8 + i as f32 * 2.0)
+            } else {
+                ACCENT
+            },
             HUD,
             BlendMode::Alpha,
         );

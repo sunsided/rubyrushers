@@ -8,6 +8,7 @@ use game_toolkit::prelude::*;
 
 use crate::logic::{Event, Mode, Pos, Session, TimeRule};
 use crate::render::scene::{self, Marks};
+use crate::render::showcase;
 use crate::render::{Effects, Fx, Layout, gem_art, hud};
 use crate::scores::{self, Bests};
 use crate::sound::{Sfx, Sound};
@@ -387,21 +388,24 @@ impl Game for App {
 
         let mut p = frame.painter(&mut ctx.gfx);
         scene::background(&mut p, w, h);
-        let (session, fx, effects) = (&self.session, &self.fx, self.effects);
-        scene::board(
-            &mut p, &layout, session, fx, self.atlas, self.clock, marks, effects,
-        );
-        self.fx.draw(&mut p, &layout, self.effects);
+        // The title stands alone; the board only shows once a game is dealt.
+        if self.screen != Screen::Title {
+            let (session, fx, effects) = (&self.session, &self.fx, self.effects);
+            scene::board(
+                &mut p, &layout, session, fx, self.atlas, self.clock, marks, effects,
+            );
+            self.fx.draw(&mut p, &layout, self.effects);
+        }
         match self.screen {
             Screen::Title => {
+                showcase::backdrop(&mut p, &base, self.atlas, self.clock, self.effects);
                 hud::title(
                     &mut p,
                     &base,
-                    w,
-                    h,
                     &self.bests,
                     hud::button_at(mouse),
                     self.clock,
+                    self.effects,
                 );
             }
             Screen::Playing => {
