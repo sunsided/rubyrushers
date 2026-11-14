@@ -16,7 +16,8 @@ Special gems:
 | L or T shape | Cross (white plus) | clears its row and column |
 | 5 in a line | Wild (rainbow orb) | swap it with a gem to clear that colour; two wilds clear the board |
 
-Chain reactions score a cascade multiplier.
+Chain reactions score a cascade multiplier, and matches in quick succession (within
+2.5 s) build a speed streak worth +50% per level. Best scores are kept per mode.
 
 ## Run
 

@@ -6,4 +6,5 @@
 pub mod app;
 pub mod logic;
 pub mod render;
+pub mod scores;
 pub mod sound;

@@ -112,11 +112,6 @@ impl Mode {
         }
     }
 
-    /// Whether this is the same mode as `other`, ignoring its state.
-    pub fn same_kind(&self, other: &Self) -> bool {
-        std::mem::discriminant(self) == std::mem::discriminant(other)
-    }
-
     /// The name shown to the player.
     pub const fn name(&self) -> &'static str {
         match self {

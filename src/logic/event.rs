@@ -35,8 +35,10 @@ pub struct Clear {
     pub blasts: Vec<(Power, Pos, Vec<Pos>)>,
     /// Special gems earned by the matches, already on the board.
     pub created: Vec<(Gem, Pos)>,
-    /// Points scored.
+    /// Points scored, speed bonus included.
     pub points: u64,
+    /// The speed streak after this clear (0: none).
+    pub speed: u32,
     /// Time gems among the cleared.
     pub time_gems: u32,
 }

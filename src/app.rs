@@ -9,6 +9,7 @@ use game_toolkit::prelude::*;
 use crate::logic::{Event, Mode, Pos, Session};
 use crate::render::scene::{self, Marks};
 use crate::render::{Effects, Fx, Layout, gem_art, hud};
+use crate::scores::{self, Bests};
 use crate::sound::{Sfx, Sound};
 
 /// Seconds without input before a move is suggested.
@@ -92,7 +93,7 @@ pub struct App {
     /// Score so far, as the events arrived.
     shown_target: u64,
     /// Best score per mode (title button order).
-    bests: [u64; 3],
+    bests: Bests,
     /// The seed of the next game.
     seed: u64,
     /// The screenshot asked for on the command line, until taken.
@@ -118,10 +119,7 @@ impl App {
 
     /// Index of the current mode in the title's button order.
     fn mode_index(&self) -> usize {
-        hud::MODES
-            .iter()
-            .position(|m| m.same_kind(self.session.mode()))
-            .unwrap_or(0)
+        scores::index(self.session.mode())
     }
 
     /// Tries to swap the gems at `a` and `b`; if they cannot move yet, `b` becomes the
@@ -190,7 +188,10 @@ impl App {
                 Event::Over => {
                     let i = self.mode_index();
                     let new_best = self.session.score() > self.bests[i];
-                    self.bests[i] = self.bests[i].max(self.session.score());
+                    if new_best {
+                        self.bests[i] = self.session.score();
+                        scores::save(&self.bests);
+                    }
                     self.screen = Screen::Over { new_best };
                     self.selected = None;
                     Some(Sfx::Over)
@@ -280,7 +281,7 @@ impl Game for App {
             clock: 0.0,
             shown_score: 0.0,
             shown_target: 0,
-            bests: [0; 3],
+            bests: scores::load(),
             seed,
             screenshot: options.screenshot,
             quit_next: false,
@@ -447,15 +448,15 @@ fn prefers_reduced_motion() -> bool {
 
 /// A seed from the wall clock, so every launch deals new boards.
 fn clock_seed() -> u64 {
-    // shortcut: the web build has no SystemTime; it uses a fixed seed until a JS clock is wired in.
     #[cfg(not(target_arch = "wasm32"))]
     {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(1, |d| d.as_nanos() as u64)
     }
+    // The web has no SystemTime; the page's clock in milliseconds will do.
     #[cfg(target_arch = "wasm32")]
     {
-        1
+        web_sys::js_sys::Date::now() as u64
     }
 }

@@ -6,6 +6,7 @@ use super::effects::Effects;
 use super::layout::{BOARD, BOARD_SIZE, DESIGN_H, DESIGN_W, Layout};
 use crate::logic::mode::RUSH_SECS;
 use crate::logic::mode::WARN_SECS;
+use crate::logic::score;
 use crate::logic::{Gravity, Mode, Session};
 
 /// Layer of panels and their text, above everything on the board.
@@ -92,6 +93,19 @@ pub fn panel(
         MUTED,
         Align::Left,
     );
+    if session.speed() > 0 {
+        let label = format!("SPEED x{}", score::speed_factor(session.speed()));
+        text(p, l, [x, 322.0], &label, 18.0, ACCENT, Align::Left);
+        let w = BOARD[0] - x - 40.0;
+        let left = session.speed_left();
+        p.rect_ex(
+            l.px([x, 346.0]),
+            [l.len(w * left), l.len(5.0)],
+            ACCENT,
+            HUD,
+            BlendMode::Alpha,
+        );
+    }
 
     if let Some(remaining) = session.mode().remaining() {
         text(p, l, [x, 360.0], "TIME", 18.0, MUTED, Align::Left);
@@ -189,7 +203,7 @@ pub fn title(
     l: &Layout,
     w: f32,
     h: f32,
-    bests: &[u64; 3],
+    bests: &crate::scores::Bests,
     hover: Option<usize>,
     time: f32,
 ) {

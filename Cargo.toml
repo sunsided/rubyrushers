@@ -16,9 +16,10 @@ log = "0.4"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11"
 
-# The browser's prefers-reduced-motion setting picks calm effects.
+# The browser: prefers-reduced-motion picks calm effects, local storage keeps the best
+# scores, the clock seeds the boards.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["MediaQueryList", "Window"] }
+web-sys = { version = "0.3", features = ["MediaQueryList", "Storage", "Window"] }
 
 [lints.rust]
 unsafe_code = "deny"

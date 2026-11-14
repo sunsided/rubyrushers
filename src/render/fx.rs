@@ -9,6 +9,7 @@ use super::effects::Effects;
 use super::gem_art::BASE;
 use super::layout::{BOARD, BOARD_SIZE, DESIGN_H, DESIGN_W, Layout};
 use crate::logic::mode::TIME_GEM_SECS;
+use crate::logic::score;
 use crate::logic::{Clear, Gem, Piece, Power};
 
 /// Layer of the background motes, above the background gradient.
@@ -71,6 +72,8 @@ struct Popup {
     size: f32,
     /// Colour.
     color: Color,
+    /// A cascade count: a newer one replaces it.
+    cascade: bool,
 }
 
 /// A cleared gem on its way out.
@@ -191,10 +194,19 @@ impl Fx {
         });
         let size = 24.0 + 4.0 * clear.cascade.min(6) as f32;
         self.popup(clear.points.to_string(), mid, size, Color::WHITE);
+        if clear.cascade == 1 && clear.speed > 0 {
+            let text = format!("Speed x{}", score::speed_factor(clear.speed));
+            let at = [mid[0], mid[1] - 34.0];
+            self.popup(text, at, 22.0, Color::rgb(1.0, 0.45, 0.5));
+        }
         if clear.cascade >= 2 {
             let size = 36.0 + 6.0 * clear.cascade.min(6) as f32;
             let text = format!("Cascade x{}", clear.cascade);
+            self.popups.retain(|p| !p.cascade);
             self.popup(text, BOARD_MID, size, Color::rgb(1.0, 0.85, 0.3));
+            if let Some(last) = self.popups.last_mut() {
+                last.cascade = true;
+            }
         }
     }
 
@@ -266,6 +278,7 @@ impl Fx {
             age: 0.0,
             size,
             color,
+            cascade: false,
         });
     }
 

@@ -28,6 +28,10 @@ pub struct Session {
     score: u64,
     /// The deepest cascade so far.
     best_cascade: u32,
+    /// The speed streak: matches of the player's in quick succession.
+    speed: u32,
+    /// Seconds since the player's last match.
+    since_match: f32,
     /// Swapped wild gems waiting to land: their id and the colour they take out (`None`:
     /// every gem).
     armed: Vec<(u32, Option<u8>)>,
@@ -49,6 +53,8 @@ impl Session {
             mode,
             score: 0,
             best_cascade: 0,
+            speed: 0,
+            since_match: f32::INFINITY,
             armed: Vec::new(),
             time_up: false,
             over: false,
@@ -79,6 +85,20 @@ impl Session {
     /// The deepest cascade so far.
     pub fn best_cascade(&self) -> u32 {
         self.best_cascade
+    }
+
+    /// The speed streak (0: none).
+    pub fn speed(&self) -> u32 {
+        self.speed
+    }
+
+    /// How much of the speed streak's window is left, `1.0..=0.0`.
+    pub fn speed_left(&self) -> f32 {
+        if self.speed == 0 {
+            0.0
+        } else {
+            (1.0 - self.since_match / score::SPEED_WINDOW).clamp(0.0, 1.0)
+        }
     }
 
     /// Whether the game has ended.
@@ -150,6 +170,10 @@ impl Session {
         }
         if self.mode.tick(dt) {
             self.time_up = true;
+        }
+        self.since_match += dt;
+        if self.since_match > score::SPEED_WINDOW {
+            self.speed = 0;
         }
         if self.field.advance(dt) > 0 {
             self.events.push(Event::Landed);
@@ -255,7 +279,14 @@ impl Session {
             }
         }
         let rewards: Vec<Power> = groups.iter().map(|g| g.reward).collect();
-        let points = score::points(cleared.len(), &rewards, blasts.len(), cascade);
+        if cascade == 1 {
+            if self.since_match <= score::SPEED_WINDOW {
+                self.speed = (self.speed + 1).min(score::MAX_SPEED);
+            }
+            self.since_match = 0.0;
+        }
+        let base = score::points(cleared.len(), &rewards, blasts.len(), cascade);
+        let points = score::with_speed(base, self.speed);
         let time_gems = cleared.iter().filter(|(g, _)| g.time_bonus).count() as u32;
         self.score += points;
         self.best_cascade = self.best_cascade.max(cascade);
@@ -266,6 +297,7 @@ impl Session {
             blasts,
             created,
             points,
+            speed: self.speed,
             time_gems,
         }));
     }
@@ -571,5 +603,21 @@ mod tests {
                 assert!(w[1] - w[0] >= 0.999, "lane {lane} overlaps: {at:?}");
             }
         }
+    }
+
+    #[test]
+    fn quick_moves_build_speed_and_pausing_loses_it() {
+        let mut s = Session::new(Mode::Endless, 11);
+        for _ in 0..3 {
+            let (a, b) = s.hint().unwrap();
+            s.swap(a, b);
+            settle(&mut s);
+        }
+        assert!(s.speed() >= 1, "three quick moves, speed {}", s.speed());
+        for _ in 0..(120 * 3) {
+            s.update(DT);
+        }
+        assert_eq!(s.speed(), 0);
+        assert_eq!(s.speed_left(), 0.0);
     }
 }
