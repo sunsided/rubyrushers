@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-14
+
 ### Added
 
 - Rush (60 seconds, time gems add more), Endless (until no move is left) and Tilt (gravity
@@ -18,4 +20,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   binary and the web zip, attests both, publishes the release and announces it to
   games.markusmayer.dev.
 
-[Unreleased]: https://github.com/sunsided/rubyrushers/commits/main
+[Unreleased]: https://github.com/sunsided/rubyrushers/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sunsided/rubyrushers/releases/tag/v0.1.0
