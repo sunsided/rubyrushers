@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RubyRushers</title>
-    <!-- trunk: build the crate to wasm and copy the asset folder next to it. -->
-    <link data-trunk rel="rust" href="game/Cargo.toml" />
-    <link data-trunk rel="copy-dir" href="assets" />
+    <!-- trunk: build the game crate to wasm (rubyrushers.js, rubyrushers_bg.wasm). -->
+    <link data-trunk rel="rust" href="game/Cargo.toml" data-bin="rubyrushers" />
+    <link data-trunk rel="copy-file" href="LICENSE" />
     <style>
       html, body { margin: 0; height: 100%; background: #111; }
       body { display: flex; align-items: center; justify-content: center; }
@@ -16,6 +16,7 @@
     </style>
   </head>
   <body>
-    <canvas id="game" tabindex="0"></canvas>
+    <!-- The game binds to this id; games.markusmayer.dev creates a canvas of the same id. -->
+    <canvas id="rubyrushers" tabindex="0"></canvas>
   </body>
 </html>

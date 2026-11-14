@@ -1,0 +1,23 @@
+# Config for `cargo release` (https://github.com/crate-ci/cargo-release).
+#
+# Install once:  cargo install cargo-release --locked
+#
+#   task release VERSION=0.2.0      (or: cargo release 0.2.0 --execute)
+#
+# Bumps the game's version, stamps CHANGELOG.md (`## [Unreleased]` becomes
+# `## [X.Y.Z] - <date>` under a fresh `[Unreleased]`, compare links updated), commits
+# "Release X.Y.Z", tags vX.Y.Z and pushes. The tag runs .github/workflows/release.yml, which
+# builds, attests and publishes the GitHub release with that CHANGELOG section as notes, and
+# announces it to games.markusmayer.dev. Nothing is published to crates.io, and the bot
+# keeps its own version (see bot/Cargo.toml).
+#
+# Dry-run by dropping --execute.
+
+tag-name = "v{{version}}"
+pre-release-commit-message = "Release {{version}}"
+publish = false
+# One package is released, so its own commit carries the version in the message.
+consolidate-commits = false
+
+# Only release from main.
+allow-branch = ["main"]

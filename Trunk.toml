@@ -1,8 +1,11 @@
 [build]
 target = "index.html"
 dist = "dist"
-# Relative URLs so the build works from any sub-path (itch.io, GitHub Pages).
+# Relative URLs so the build works from any sub-path (GitHub Pages, and the games site's
+# /builds/rubyrushers/<version>/).
 public_url = "./"
+# Stable file names (rubyrushers.js / rubyrushers_bg.wasm) so a host page can import them.
+filehash = false
 
 [serve]
 port = 8080

@@ -25,3 +25,7 @@ rubyrushers = { path = "../game" }
 
 [lints]
 workspace = true
+
+# `task release` versions and tags the game only.
+[package.metadata.release]
+release = false

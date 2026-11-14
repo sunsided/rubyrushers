@@ -52,7 +52,11 @@ pub fn config() -> AppConfig {
         width: 1120,
         height: 840,
         asset_root: asset_root!(),
-        canvas_id: Some("game".into()),
+        canvas_id: Some("rubyrushers".into()),
+        // Nothing is loaded at runtime (the gems are rasterised, the sounds synthesised), so
+        // the web build skips the asset manifest: embedded on the games site, it would be
+        // looked up next to the site's page and miss.
+        web_preload: Some(Vec::new()),
         touch_emulates_mouse: true,
         msaa_samples: 4,
         ..Default::default()

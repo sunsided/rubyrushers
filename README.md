@@ -79,6 +79,13 @@ move, and the moves it weighed](docs/bot-watch.png)
 
 How it finds, reads and plays the board, and how it differs from its 2010 predecessor: [`bot/README.md`](bot/README.md).
 
+## Releases
+
+`task release VERSION=x.y.z` bumps the version, stamps [`CHANGELOG.md`](CHANGELOG.md), tags
+and pushes. The tag builds the Linux binary and the web zip, attests both and publishes a
+release ([`.github/workflows/release.yml`](.github/workflows/release.yml)), then announces it
+to [games.markusmayer.dev](https://games.markusmayer.dev), which embeds the game in its page.
+
 ## License
 
 [EUPL-1.2](LICENSE).
