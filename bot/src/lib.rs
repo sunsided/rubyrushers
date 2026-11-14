@@ -11,6 +11,7 @@ pub mod grid;
 pub mod image;
 pub mod read;
 pub mod serve;
+pub mod sim;
 pub mod solver;
 pub mod tile;
 

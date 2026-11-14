@@ -47,8 +47,12 @@ task bot -- --mode tilt --visible     # watch it play
 task bot:accuracy                     # grade its reading against seeded games
 ```
 
-Milestone 1 (now): it reads boards perfectly in both effect levels and plays greedily
-once the board rests. Next: lookahead, specials, and playing while gems still fall.
+It reads boards perfectly in both effect levels and plays as fast as it can: any cell
+two readings in a row agree on is fair game, without waiting for the board to rest.
+Each candidate swap is simulated until the board settles (matches, special gems,
+gravity, cascades; new gems unknown), and scored with the best follow-up on that
+predicted board, so a small match that sets up a big one can win. Next: special gems,
+gravity in Tilt, deeper search.
 
 ## License
 
